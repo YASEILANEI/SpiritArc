@@ -68,6 +68,7 @@ export default function ReadingResultPage({ reading, onBackToResult, onHome }: P
         const data = await res.json()
         if (data.readingResult) {
           setResult(data.readingResult)
+          clearInterval(poll)
         }
       } catch { /* ignore */ }
     }, 2000)
@@ -80,12 +81,13 @@ export default function ReadingResultPage({ reading, onBackToResult, onHome }: P
       : [],
     [result, reading.cards]
   )
-  const isOffline = reading.readingSource === 'template'
+  const isOffline = 'id' in reading && typeof reading.id === 'string' && reading.id.startsWith('local_')
+  const isAI = reading.readingSource === 'ai'
   const hasQuestion = !!reading.question?.trim()
   const isThreeCard = reading.cards.length === 3
 
   return (
-    <div className="min-h-screen px-4 py-6">
+    <div className="min-h-screen px-4 pt-16 pb-6">
       <div className="w-full max-w-lg mx-auto">
         {/* Header */}
         <div className="flex items-center justify-between mb-6">
@@ -104,6 +106,13 @@ export default function ReadingResultPage({ reading, onBackToResult, onHome }: P
                 离线模式
               </span>
             )}
+            <span className={`text-xs px-2 py-1 rounded ${
+              isAI
+                ? 'bg-purple-900/30 text-purple-400/80'
+                : 'bg-mystic-card text-mystic-text/40'
+            }`}>
+              {isAI ? '牌灵解读' : '模板解读'}
+            </span>
           </div>
         </div>
 

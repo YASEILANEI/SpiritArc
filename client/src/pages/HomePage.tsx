@@ -1,15 +1,17 @@
+import type { User } from '../types'
+
 interface Props {
   onStart: () => void
   onHistory: () => void
+  user: User | null
 }
 
-export default function HomePage({ onStart, onHistory }: Props) {
+export default function HomePage({ onStart, onHistory, user }: Props) {
   return (
-    <div className="min-h-screen flex flex-col items-center justify-center px-4">
-      {/* Decorative top */}
+    <div className="min-h-screen flex flex-col items-center justify-center px-4 pt-16">
       <div className="mb-8 text-center">
         <div className="text-mystic-gold text-6xl mb-4">✧</div>
-        <h1 className="text-3xl md:text-5xl font-serif text-mystic-gold mb-2">塔罗占卜</h1>
+        <h1 className="text-3xl md:text-5xl font-serif text-mystic-gold mb-2">牌灵占卜</h1>
         <p className="text-mystic-text/60 text-sm">探寻内心的答案</p>
       </div>
 
@@ -23,8 +25,7 @@ export default function HomePage({ onStart, onHistory }: Props) {
             </div>
           </div>
         </div>
-        {/* Shadow cards */}
-        <div className="absolute -inset-1 bg-mystic-gold/10 rounded-lg blur-sm -z-10"></div>
+        <div className="absolute -inset-1 bg-mystic-gold/10 rounded-lg blur-sm -z-10" />
       </div>
 
       <button

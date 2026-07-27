@@ -7,6 +7,8 @@ interface Props {
   onBack: () => void
   onHome: () => void
   onShowReadingResult: () => void
+  onUpgradeReading?: (id: number) => Promise<Reading>
+  defaultFlipped?: boolean
 }
 
 const questionContextMap: Record<string, string> = {
@@ -23,13 +25,18 @@ const spreadPositionLabels: Record<string, string> = {
   future: '未来',
 }
 
-export default function ResultPage({ reading, onBack, onHome, onShowReadingResult }: Props) {
+export default function ResultPage({ reading, onBack, onHome, onShowReadingResult, onUpgradeReading, defaultFlipped }: Props) {
   const [flippedStates, setFlippedStates] = useState<boolean[]>(
-    new Array(reading.cards.length).fill(false)
+    defaultFlipped
+      ? new Array(reading.cards.length).fill(true)
+      : new Array(reading.cards.length).fill(false)
   )
   const allFlipped = flippedStates.every(Boolean)
   const isThreeCard = reading.cards.length === 3
   const isLocal = 'id' in reading && typeof reading.id === 'string' && reading.id.startsWith('local_')
+  const [showChoice, setShowChoice] = useState(false)
+  const [modalState, setModalState] = useState<'idle' | 'upgrading' | 'error' | 'limit'>('idle')
+  const [errorMsg, setErrorMsg] = useState('')
 
   const handleFlip = (index: number) => {
     if (flippedStates[index]) return
@@ -38,8 +45,61 @@ export default function ResultPage({ reading, onBack, onHome, onShowReadingResul
     setFlippedStates(next)
   }
 
+  const handleShowReading = () => {
+    // Local readings go directly (no server-side upgrade available)
+    if (isLocal) {
+      onShowReadingResult()
+      return
+    }
+    // Already used 牌灵解读 — go directly without re-prompting
+    if (reading.readingSource === 'ai') {
+      onShowReadingResult()
+      return
+    }
+    // Template — show choice between template and spirit reading
+    setShowChoice(true)
+    setModalState('idle')
+    setErrorMsg('')
+  }
+
+  const handleTemplateChoice = () => {
+    setShowChoice(false)
+    onShowReadingResult()
+  }
+
+  const handleSpiritChoice = async () => {
+    if (isLocal && reading.readingSource !== 'ai') {
+      onShowReadingResult()
+      return
+    }
+    // Already has AI result — navigate directly
+    if (reading.readingSource === 'ai') {
+      setShowChoice(false)
+      onShowReadingResult()
+      return
+    }
+    if (!onUpgradeReading) {
+      onShowReadingResult()
+      return
+    }
+    setModalState('upgrading')
+    try {
+      await onUpgradeReading(reading.id as number)
+      setShowChoice(false)
+      onShowReadingResult()
+    } catch (err: any) {
+      const msg = err?.message || ''
+      if (msg.includes('已达上限')) {
+        setModalState('limit')
+      } else {
+        setModalState('error')
+        setErrorMsg(msg)
+      }
+    }
+  }
+
   return (
-    <div className="min-h-screen px-4 py-6">
+    <div className="min-h-screen px-4 pt-16 pb-6">
       <div className="w-full max-w-lg mx-auto">
         {/* Header */}
         <div className="flex items-center justify-between mb-4">
@@ -177,7 +237,7 @@ export default function ResultPage({ reading, onBack, onHome, onShowReadingResul
             </button>
             {reading.readingResult && (
               <button
-                onClick={onShowReadingResult}
+                onClick={handleShowReading}
                 className="flex-1 py-3 bg-mystic-gold text-mystic-bg rounded-full
                   hover:bg-yellow-500 transition-all text-sm font-serif"
               >
@@ -187,6 +247,75 @@ export default function ResultPage({ reading, onBack, onHome, onShowReadingResul
           </div>
         )}
       </div>
+
+      {/* Reading choice modal */}
+      {showChoice && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center px-4 bg-black/60 backdrop-blur-sm">
+          <div className="bg-mystic-card border border-mystic-gold/30 rounded-2xl p-6 w-full max-w-sm shadow-2xl animate-fadeIn">
+            <h3 className="text-mystic-gold font-serif text-xl text-center mb-6">选择解读方式</h3>
+
+            {/* Template option */}
+            <button
+              onClick={handleTemplateChoice}
+              disabled={modalState === 'upgrading'}
+              className="w-full text-left bg-mystic-bg/60 rounded-xl p-4 border border-mystic-gold/20
+                hover:border-mystic-gold/40 transition-all mb-3 disabled:opacity-50"
+            >
+              <div className="flex items-center gap-3">
+                <span className="text-2xl">📖</span>
+                <div>
+                  <div className="text-mystic-gold font-serif">模板解读</div>
+                  <div className="text-mystic-text/40 text-xs mt-0.5">基于塔罗牌义的经典解读，无需等待</div>
+                </div>
+              </div>
+            </button>
+
+            {/* Spirit (AI) option */}
+            <button
+              onClick={handleSpiritChoice}
+              disabled={modalState === 'upgrading'}
+              className="w-full text-left bg-mystic-bg/60 rounded-xl p-4 border border-mystic-gold/20
+                hover:border-mystic-gold/40 transition-all mb-4 disabled:opacity-50"
+            >
+              <div className="flex items-center gap-3">
+                <span className="text-2xl">✨</span>
+                <div>
+                  <div className="text-mystic-gold font-serif">牌灵解读</div>
+                  <div className="text-mystic-text/40 text-xs mt-0.5">
+                    AI 驱动的深度个性化解读
+                    {!isLocal && (
+                      <span className="text-mystic-text/30 ml-1">（免费用户每周 3 次）</span>
+                    )}
+                  </div>
+                </div>
+              </div>
+            </button>
+
+            {/* Modal states */}
+            {modalState === 'upgrading' && (
+              <div className="flex items-center gap-2 text-mystic-text/60 text-sm justify-center mb-2">
+                <div className="w-4 h-4 border-2 border-mystic-gold/30 border-t-mystic-gold rounded-full animate-spin" />
+                牌灵正在生成解读...
+              </div>
+            )}
+            {modalState === 'error' && (
+              <p className="text-red-400/80 text-sm text-center mb-2">{errorMsg || '生成失败，请稍后重试'}</p>
+            )}
+            {modalState === 'limit' && (
+              <p className="text-amber-400/80 text-sm text-center mb-2">
+                本周牌灵解读次数已达上限（3 次），请使用模板解读或下周一再来
+              </p>
+            )}
+
+            <button
+              onClick={() => setShowChoice(false)}
+              className="w-full text-center text-mystic-text/40 text-sm hover:text-mystic-text/60 transition-colors pt-2"
+            >
+              取消
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

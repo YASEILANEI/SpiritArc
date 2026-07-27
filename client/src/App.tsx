@@ -1,6 +1,8 @@
 import { useState, useRef } from 'react'
 import type { Reading, LocalReading } from './types'
-import { createReading } from './api'
+import { createReading, upgradeReading } from './api'
+import { AuthProvider, useAuth } from './contexts/AuthContext'
+import NavBar from './components/NavBar'
 import HomePage from './pages/HomePage'
 import AskPage from './pages/AskPage'
 import ShufflePage from './pages/ShufflePage'
@@ -9,17 +11,37 @@ import DrawPage from './pages/DrawPage'
 import ResultPage from './pages/ResultPage'
 import ReadingResultPage from './pages/ReadingResultPage'
 import HistoryPage from './pages/HistoryPage'
+import AboutPage from './pages/AboutPage'
+import SupportPage from './pages/SupportPage'
+import LoginPage from './pages/LoginPage'
+import RegisterPage from './pages/RegisterPage'
+import ProfilePage from './pages/ProfilePage'
+import AdminPage from './pages/AdminPage'
+import AdminSettingsPage from './pages/AdminSettingsPage'
+import AdminUsersPage from './pages/AdminUsersPage'
+import AdminReadingsPage from './pages/AdminReadingsPage'
 
 type Page = 'home' | 'ask' | 'shuffle' | 'cut' | 'draw' | 'analyzing' | 'result' | 'reading-result' | 'history'
+  | 'login' | 'register' | 'profile' | 'about' | 'support' | 'admin' | 'admin-settings' | 'admin-users' | 'admin-readings'
 
-export default function App() {
+function AppContent() {
+  const { user, isAuthenticated, isLoading, logout } = useAuth()
   const [page, setPage] = useState<Page>('home')
   const [reading, setReading] = useState<Reading | LocalReading | null>(null)
-  const shuffleDone = useRef(false)
+  const [fromReadingResult, setFromReadingResult] = useState(false)
   const apiDone = useRef(false)
   const drawDone = useRef(false)
   const spreadTypeRef = useRef<'single' | 'three-card'>('single')
   const pendingReading = useRef<Reading | LocalReading | null>(null)
+
+  // Show loading screen while checking auth
+  if (isLoading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-mystic-bg">
+        <div className="w-8 h-8 border-2 border-mystic-gold/30 border-t-mystic-gold rounded-full animate-spin" />
+      </div>
+    )
+  }
 
   const tryShowResult = () => {
     if (apiDone.current && drawDone.current) {
@@ -28,29 +50,35 @@ export default function App() {
     }
   }
 
-  const handleStart = () => setPage('ask')
+  const handleStart = () => {
+    if (!isAuthenticated) {
+      setPage('login')
+    } else {
+      setPage('ask')
+    }
+  }
 
   const handleDraw = async (questionType: string, question: string, spreadType: 'single' | 'three-card') => {
     drawDone.current = false
     apiDone.current = false
+    setFromReadingResult(false)
     spreadTypeRef.current = spreadType
     setPage('shuffle')
 
-    // Background API call — AI generates while user does shuffle → cut → draw
     createReading({ questionType, question, spreadType }).then(result => {
       pendingReading.current = result
       apiDone.current = true
       tryShowResult()
+    }).catch(() => {
+      if (!apiDone.current) {
+        apiDone.current = true
+        tryShowResult()
+      }
     })
   }
 
-  const handleShuffleComplete = () => {
-    setPage('cut')
-  }
-
-  const handleCutComplete = () => {
-    setPage('draw')
-  }
+  const handleShuffleComplete = () => setPage('cut')
+  const handleCutComplete = () => setPage('draw')
 
   const handleDrawComplete = () => {
     drawDone.current = true
@@ -58,12 +86,92 @@ export default function App() {
     tryShowResult()
   }
 
+  const handleUpgradeReading = async (id: number): Promise<Reading> => {
+    const updated = await upgradeReading(id)
+    setReading(updated)
+    return updated
+  }
+
+  const resetReading = () => {
+    setReading(null)
+    pendingReading.current = null
+  }
+
+  const goHome = () => {
+    resetReading()
+    setPage('home')
+  }
+
+  const handleAdminNavigate = (sub: string) => {
+    setPage(`admin-${sub}` as Page)
+  }
+
+  // Admin pages guard
+  const isAdmin = user?.role === 'admin'
+  const adminPages: Page[] = ['admin', 'admin-settings', 'admin-users', 'admin-readings']
+  if (adminPages.includes(page) && !isAdmin) {
+    return (
+      <div className="min-h-screen flex flex-col items-center justify-center px-4 bg-mystic-bg">
+        <p className="text-red-400/80 mb-2">⚠ 无权限访问</p>
+        <button onClick={() => setPage('home')} className="text-mystic-gold hover:underline text-sm">
+          返回首页
+        </button>
+      </div>
+    )
+  }
+
+  // Pages that show the top NavBar
+  const navBarPages = new Set<Page>(['home', 'history', 'profile', 'about', 'support', 'result', 'reading-result'])
+
+  const handleNavigate = (target: string) => {
+    if (target === 'home') goHome()
+    else setPage(target as Page)
+  }
+
   return (
     <div className="min-h-screen bg-mystic-bg">
-      {page === 'home' && (
-        <HomePage onStart={handleStart} onHistory={() => setPage('history')} />
+      {navBarPages.has(page) && (
+        <NavBar
+          currentPage={page}
+          onNavigate={handleNavigate}
+          isAdmin={isAdmin}
+          isAuthenticated={isAuthenticated}
+          onLogin={() => setPage('login')}
+        />
       )}
-      {page === 'ask' && (
+
+      {/* Auth pages */}
+      {page === 'login' && (
+        <LoginPage
+          onSwitchToRegister={() => setPage('register')}
+          onSuccess={() => setPage('home')}
+        />
+      )}
+      {page === 'register' && (
+        <RegisterPage
+          onSwitchToLogin={() => setPage('login')}
+          onSuccess={() => setPage('home')}
+        />
+      )}
+
+      {/* Authenticated pages */}
+      {page === 'home' && (
+        <HomePage
+          onStart={handleStart}
+          onHistory={() => setPage('history')}
+          user={user}
+        />
+      )}
+      {page === 'profile' && isAuthenticated && (
+        <ProfilePage onBack={() => setPage('home')} />
+      )}
+      {page === 'about' && (
+        <AboutPage onBack={() => setPage('home')} />
+      )}
+      {page === 'support' && (
+        <SupportPage />
+      )}
+      {page === 'ask' && isAuthenticated && (
         <AskPage onDraw={handleDraw} onBack={() => setPage('home')} />
       )}
       {page === 'shuffle' && (
@@ -113,15 +221,17 @@ export default function App() {
         <ResultPage
           reading={reading}
           onBack={() => setPage('history')}
-          onHome={() => { setReading(null); pendingReading.current = null; setPage('home') }}
+          onHome={goHome}
           onShowReadingResult={() => setPage('reading-result')}
+          onUpgradeReading={handleUpgradeReading}
+          defaultFlipped={fromReadingResult}
         />
       )}
       {page === 'reading-result' && reading && (
         <ReadingResultPage
           reading={reading}
-          onBackToResult={() => setPage('result')}
-          onHome={() => { setReading(null); pendingReading.current = null; setPage('home') }}
+          onBackToResult={() => { setFromReadingResult(true); setPage('result') }}
+          onHome={goHome}
         />
       )}
       {page === 'history' && (
@@ -131,6 +241,28 @@ export default function App() {
           onSelectResult={(r) => { setReading(r); setPage('reading-result') }}
         />
       )}
+
+      {/* Admin pages */}
+      {page === 'admin' && (
+        <AdminPage onNavigate={handleAdminNavigate} onBack={() => setPage('home')} />
+      )}
+      {page === 'admin-settings' && (
+        <AdminSettingsPage onBack={() => setPage('admin')} />
+      )}
+      {page === 'admin-users' && (
+        <AdminUsersPage onBack={() => setPage('admin')} />
+      )}
+      {page === 'admin-readings' && (
+        <AdminReadingsPage onBack={() => setPage('admin')} />
+      )}
     </div>
+  )
+}
+
+export default function App() {
+  return (
+    <AuthProvider>
+      <AppContent />
+    </AuthProvider>
   )
 }

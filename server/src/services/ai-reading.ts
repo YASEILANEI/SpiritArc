@@ -1,3 +1,5 @@
+import db from '../db/index.js'
+
 const typeLabels: Record<string, string> = {
   love: '感情',
   career: '事业',
@@ -67,19 +69,33 @@ export async function aiReading(
   question: string,
   cards: any[]
 ): Promise<{ result: string; source: 'ai' } | null> {
-  const apiKey = process.env.OPENCODE_API_KEY
-  const baseURL = process.env.OPENCODE_BASE_URL || 'https://opencode.ai/zen/go/v1'
-  if (!apiKey) return null
+  // Read settings from DB with env fallback
+  const getSetting = (key: string, defaultValue: string): string => {
+    try {
+      const row = db.prepare('SELECT value FROM settings WHERE key = ?').get(key) as any
+      return row?.value || process.env[key] || defaultValue
+    } catch {
+      return process.env[key] || defaultValue
+    }
+  }
+
+  const apiKey = getSetting('OPENCODE_API_KEY', '')
+  const baseURL = getSetting('OPENCODE_BASE_URL', 'https://opencode.ai/zen/go/v1')
+  const model = getSetting('AI_MODEL', 'deepseek-v4-flash')
+  const maxTokens = parseInt(getSetting('AI_MAX_TOKENS', '4000'), 10)
 
   try {
+    const controller = new AbortController()
+    const timeout = setTimeout(() => controller.abort(), 30000)
     const res = await fetch(`${baseURL}/chat/completions`, {
       method: 'POST',
+      signal: controller.signal,
       headers: {
         'Authorization': `Bearer ${apiKey}`,
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        model: 'deepseek-v4-flash',
+        model,
         messages: [
           {
             role: 'system',
@@ -91,9 +107,10 @@ export async function aiReading(
           },
         ],
         temperature: 0.7,
-        max_tokens: 1500,
+        max_tokens: maxTokens,
       }),
     })
+    clearTimeout(timeout)
 
     if (!res.ok) {
       const errText = await res.text().catch(() => '')
@@ -103,7 +120,7 @@ export async function aiReading(
 
     const data = await res.json() as any
     const text = data.choices?.[0]?.message?.content
-    if (!text) return null
+    if (text == null) return null
 
     return { result: cleanMarkdown(text), source: 'ai' }
   } catch (err) {

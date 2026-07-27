@@ -4,6 +4,85 @@ import { generateLocalReading } from './utils/reading-generator'
 
 const API_BASE = '/api'
 
+// Token management (set by AuthContext on init/refresh)
+let _accessToken: string | null = null
+let _onAuthExpired: (() => void) | null = null
+
+export function setAccessToken(token: string | null) {
+  _accessToken = token
+}
+
+export function setOnAuthExpired(cb: () => void) {
+  _onAuthExpired = cb
+}
+
+// Fetch wrapper with automatic auth header + 401 refresh interceptor
+let _refreshPromise: Promise<{ accessToken: string } | null> | null = null
+
+async function apiFetch(path: string, options: RequestInit = {}): Promise<Response> {
+  const headers = new Headers(options.headers)
+  if (_accessToken) {
+    headers.set('Authorization', `Bearer ${_accessToken}`)
+  }
+  if (!headers.has('Content-Type') && options.body) {
+    headers.set('Content-Type', 'application/json')
+  }
+
+  let res = await fetch(`${API_BASE}${path}`, {
+    ...options,
+    headers,
+    credentials: 'include',
+  })
+
+  // Token expired — try refresh (with mutex for concurrent 401s)
+  if (res.status === 401 && _accessToken) {
+    try {
+      if (!_refreshPromise) {
+        _refreshPromise = fetch(`${API_BASE}/auth/refresh`, {
+          method: 'POST',
+          credentials: 'include',
+        }).then(r => r.ok ? r.json() : null).finally(() => { _refreshPromise = null })
+      }
+      const data = await _refreshPromise
+      if (data) {
+        _accessToken = data.accessToken
+        headers.set('Authorization', `Bearer ${_accessToken}`)
+        res = await fetch(`${API_BASE}${path}`, {
+          ...options,
+          headers,
+          credentials: 'include',
+        })
+      } else {
+        _accessToken = null
+        _onAuthExpired?.()
+      }
+    } catch {
+      _accessToken = null
+      _onAuthExpired?.()
+    }
+  }
+
+  return res
+}
+
+// Migrate local readings to cloud after login/register
+export async function migrateLocalReadings(): Promise<void> {
+  try {
+    const raw = localStorage.getItem('tarot_readings')
+    if (!raw) return
+    const local = JSON.parse(raw)
+    if (!Array.isArray(local) || local.length === 0) return
+
+    const res = await apiFetch('/readings/batch-sync', {
+      method: 'POST',
+      body: JSON.stringify({ readings: local }),
+    })
+    if (res.ok) {
+      localStorage.removeItem('tarot_readings')
+    }
+  } catch { /* ignore */ }
+}
+
 const SPREAD_POSITIONS: Record<string, string[]> = {
   'three-card': ['past', 'present', 'future'],
 }
@@ -46,9 +125,8 @@ function saveLocalReading(reading: LocalReading) {
 
 export async function createReading(req: ReadingRequest): Promise<Reading | LocalReading> {
   try {
-    const res = await fetch(`${API_BASE}/readings`, {
+    const res = await apiFetch('/readings', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(req),
     })
     if (!res.ok) throw new Error('API error')
@@ -72,10 +150,20 @@ export async function createReading(req: ReadingRequest): Promise<Reading | Loca
   }
 }
 
+// Upgrade a template reading to AI (牌灵解读)
+export async function upgradeReading(id: number): Promise<Reading> {
+  const res = await apiFetch(`/readings/${id}/ai-reading`, { method: 'POST' })
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ error: '升级失败' }))
+    throw new Error(err.error || '升级失败')
+  }
+  return res.json()
+}
+
 export async function fetchReadings(): Promise<(Reading | LocalReading)[]> {
   const local = getLocalReadings()
   try {
-    const res = await fetch(`${API_BASE}/readings`)
+    const res = await apiFetch('/readings')
     if (!res.ok) throw new Error('API error')
     const remote: Reading[] = await res.json()
     return [...remote, ...local]
@@ -84,5 +172,5 @@ export async function fetchReadings(): Promise<(Reading | LocalReading)[]> {
   }
 }
 
-export { allCards }
+export { allCards, apiFetch }
 export type { TarotCard }

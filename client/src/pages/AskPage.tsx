@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import BackButton from '../components/BackButton'
 
 interface Props {
   onDraw: (questionType: string, question: string, spreadType: 'single' | 'three-card') => void
@@ -20,12 +21,7 @@ export default function AskPage({ onDraw, onBack }: Props) {
 
   return (
     <div className="min-h-screen flex flex-col items-center justify-center px-4">
-      <button
-        onClick={onBack}
-        className="absolute top-4 left-4 text-mystic-text/50 hover:text-mystic-gold transition-colors"
-      >
-        ← 返回
-      </button>
+      <BackButton onClick={onBack} className="absolute top-4 left-4" />
 
       <div className="w-full max-w-md">
         <h2 className="text-2xl font-serif text-mystic-gold text-center mb-8">
