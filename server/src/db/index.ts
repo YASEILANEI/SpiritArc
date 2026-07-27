@@ -18,4 +18,13 @@ db.exec(`
   )
 `)
 
+// Migration: add reading_result and reading_source columns if not present
+const hasResultCol = db.prepare(
+  "SELECT name FROM pragma_table_info('readings') WHERE name = 'reading_result'"
+).get()
+if (!hasResultCol) {
+  db.exec("ALTER TABLE readings ADD COLUMN reading_result TEXT")
+  db.exec("ALTER TABLE readings ADD COLUMN reading_source TEXT DEFAULT 'template'")
+}
+
 export default db

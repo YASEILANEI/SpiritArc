@@ -6,6 +6,7 @@ import { fetchReadings } from '../api'
 interface Props {
   onBack: () => void
   onSelect: (reading: Reading | LocalReading) => void
+  onSelectResult: (reading: Reading | LocalReading) => void
 }
 
 export default function HistoryPage({ onBack, onSelect }: Props) {
@@ -77,6 +78,14 @@ export default function HistoryPage({ onBack, onSelect }: Props) {
                       <span className="text-mystic-gold font-serif truncate">
                         {r.cards.map(c => c.nameCn).join(' · ')}
                       </span>
+                      {r.readingResult && (
+                        <button
+                          onClick={(e) => { e.stopPropagation(); onSelectResult(r) }}
+                          className="text-xs text-mystic-gold/50 hover:text-mystic-gold whitespace-nowrap ml-auto"
+                        >
+                          查看解读
+                        </button>
+                      )}
                     </div>
                     {r.question && (
                       <p className="text-mystic-text/50 text-sm truncate">{r.question}</p>

@@ -6,6 +6,7 @@ interface Props {
   reading: Reading | LocalReading
   onBack: () => void
   onHome: () => void
+  onShowReadingResult: () => void
 }
 
 const questionContextMap: Record<string, string> = {
@@ -22,7 +23,7 @@ const spreadPositionLabels: Record<string, string> = {
   future: '未来',
 }
 
-export default function ResultPage({ reading, onBack, onHome }: Props) {
+export default function ResultPage({ reading, onBack, onHome, onShowReadingResult }: Props) {
   const [flippedStates, setFlippedStates] = useState<boolean[]>(
     new Array(reading.cards.length).fill(false)
   )
@@ -138,22 +139,22 @@ export default function ResultPage({ reading, onBack, onHome }: Props) {
 
               {card.interpretation ? (
                 <div className="bg-mystic-card/80 rounded-xl p-4 border border-mystic-gold/20 space-y-3">
-                  <InterpretSection title="核心含义" text={card.interpretation.coreMeaning} />
+                  <InterpretSection title="核心含义" text={card.interpretation[card.position]?.coreMeaning} />
 
                   {(reading.questionType === 'general' || reading.questionType === 'love') && (
-                    <InterpretSection title={`${questionContextMap.love}`} text={card.interpretation.love} />
+                    <InterpretSection title={`${questionContextMap.love}`} text={card.interpretation[card.position]?.love} />
                   )}
                   {(reading.questionType === 'general' || reading.questionType === 'career') && (
-                    <InterpretSection title={`${questionContextMap.career}`} text={card.interpretation.career} />
+                    <InterpretSection title={`${questionContextMap.career}`} text={card.interpretation[card.position]?.career} />
                   )}
                   {(reading.questionType === 'general' || reading.questionType === 'finance') && (
-                    <InterpretSection title={`${questionContextMap.finance}`} text={card.interpretation.finance} />
+                    <InterpretSection title={`${questionContextMap.finance}`} text={card.interpretation[card.position]?.finance} />
                   )}
                   {(reading.questionType === 'general' || reading.questionType === 'health') && (
-                    <InterpretSection title={`${questionContextMap.health}`} text={card.interpretation.health} />
+                    <InterpretSection title={`${questionContextMap.health}`} text={card.interpretation[card.position]?.health} />
                   )}
 
-                  <InterpretSection title="行动建议" text={card.interpretation.advice} />
+                  <InterpretSection title="行动建议" text={card.interpretation[card.position]?.advice} />
                 </div>
               ) : (
                 <div className="bg-mystic-card/80 rounded-xl p-4 border border-mystic-gold/20">
@@ -163,28 +164,6 @@ export default function ResultPage({ reading, onBack, onHome }: Props) {
             </div>
           )
         ))}
-
-        {/* Three-card summary */}
-        {allFlipped && isThreeCard && (
-          <div className="animate-fadeIn bg-mystic-card/80 rounded-xl p-5 border border-mystic-gold/20 mb-4">
-            <h4 className="text-mystic-gold font-serif mb-3">牌阵综合解读</h4>
-            <div className="space-y-2">
-              {reading.cards.map((card, i) => {
-                const label = spreadPositionLabels[card.spreadPosition || ''] || `第${i + 1}张`
-                return (
-                  <p key={i} className="text-sm text-mystic-text/70 leading-relaxed">
-                    <span className="text-mystic-gold">{label}</span>
-                    <span className="text-mystic-text/40 mx-1">—</span>
-                    <span className={card.position === 'down' ? 'text-red-400/80' : 'text-green-400/80'}>
-                      {card.nameCn}
-                    </span>
-                    ：{card.interpretation?.coreMeaning?.slice(0, 60) || card.meaning?.slice(0, 60)}...
-                  </p>
-                )
-              })}
-            </div>
-          </div>
-        )}
 
         {/* Action buttons */}
         {allFlipped && (
@@ -196,6 +175,15 @@ export default function ResultPage({ reading, onBack, onHome }: Props) {
             >
               再占一次
             </button>
+            {reading.readingResult && (
+              <button
+                onClick={onShowReadingResult}
+                className="flex-1 py-3 bg-mystic-gold text-mystic-bg rounded-full
+                  hover:bg-yellow-500 transition-all text-sm font-serif"
+              >
+                查看完整解读
+              </button>
+            )}
           </div>
         )}
       </div>

@@ -3,6 +3,8 @@ import { readFileSync } from 'fs'
 import path from 'path'
 import { fileURLToPath } from 'url'
 import db from '../db/index.js'
+import { templateReading } from '../services/template-reading.js'
+import { aiReading } from '../services/ai-reading.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const cardsPath = path.join(__dirname, '..', 'data', 'cards.json')
@@ -15,16 +17,31 @@ const SPREAD_POSITIONS: Record<string, string[]> = {
 }
 
 // POST /api/readings — create a new reading
-router.post('/', (req, res) => {
+router.post('/', async (req, res) => {
   const { questionType = 'general', question = '', spreadType = 'single' } = req.body
   const drawCards = drawSpread(spreadType, allCards)
 
-  const stmt = db.prepare(
-    'INSERT INTO readings (question_type, question, cards, spread_type) VALUES (?, ?, ?, ?)'
-  )
-  const result = stmt.run(questionType, question, JSON.stringify(drawCards), spreadType)
+  // Generate personalized reading — AI first, template fallback
+  const fullCards = drawCards.map((d: any) => {
+    const card = allCards.find(c => c.id === d.cardId)
+    return {
+      ...card,
+      position: d.position,
+      meaning: d.position === 'up' ? card.meaningUp : card.meaningDown,
+      spreadPosition: d.spreadPosition,
+    }
+  })
+  const aiResult = await aiReading(questionType, question, fullCards)
+  const { result: readingResult, source: readingSource } = aiResult
+    ? aiResult
+    : templateReading(questionType, question, fullCards)
 
-  const reading = db.prepare('SELECT * FROM readings WHERE id = ?').get(result.lastInsertRowid) as any
+  const stmt = db.prepare(
+    'INSERT INTO readings (question_type, question, cards, spread_type, reading_result, reading_source) VALUES (?, ?, ?, ?, ?, ?)'
+  )
+  const insertResult = stmt.run(questionType, question, JSON.stringify(drawCards), spreadType, readingResult, readingSource)
+
+  const reading = db.prepare('SELECT * FROM readings WHERE id = ?').get(insertResult.lastInsertRowid) as any
   res.status(201).json(formatReading(reading, allCards))
 })
 
@@ -79,6 +96,8 @@ function formatReading(reading: any, allCards: any[]) {
       }
     }),
     createdAt: reading.created_at,
+    readingResult: reading.reading_result,
+    readingSource: reading.reading_source,
   }
 }
 

@@ -40,6 +40,8 @@ export interface Reading {
   spreadType: string
   cards: DrawnCard[]
   createdAt: string
+  readingResult?: string
+  readingSource?: 'ai' | 'template'
 }
 
 export interface ReadingRequest {
@@ -55,6 +57,8 @@ export interface LocalReading {
   spreadType: string
   cards: DrawnCard[]
   createdAt: string
+  readingResult?: string
+  readingSource?: 'ai' | 'template'
 }
 
 export const SPREAD_LABELS: Record<string, string[]> = {

@@ -1,5 +1,6 @@
 import type { TarotCard, DrawnCard, Reading, ReadingRequest, LocalReading } from './types'
 import allCards from './data/cards.json'
+import { generateLocalReading } from './utils/reading-generator'
 
 const API_BASE = '/api'
 
@@ -16,7 +17,7 @@ function shuffleArray<T>(arr: T[]): T[] {
   return a
 }
 
-function drawLocal(count: number, spreadType?: string): DrawnCard[] {
+export function drawLocal(count: number, spreadType?: string): DrawnCard[] {
   const cards = allCards as TarotCard[]
   return shuffleArray(cards).slice(0, count).map((c, i) => {
     const position = Math.random() < 0.5 ? 'up' as const : 'down' as const
@@ -56,11 +57,15 @@ export async function createReading(req: ReadingRequest): Promise<Reading | Loca
   } catch {
     // Offline fallback
     const count = req.spreadType === 'three-card' ? 3 : 1
+    const drawn = drawLocal(count, req.spreadType)
+    const localReading = generateLocalReading(req.questionType, req.question, drawn)
     const local: LocalReading = {
       id: `local_${Date.now()}`,
       ...req,
-      cards: drawLocal(count, req.spreadType),
+      cards: drawn,
       createdAt: new Date().toISOString(),
+      readingResult: localReading.result,
+      readingSource: localReading.source,
     }
     saveLocalReading(local)
     return local
