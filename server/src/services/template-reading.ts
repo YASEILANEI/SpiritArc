@@ -18,7 +18,6 @@ export function templateReading(
   cards: any[]
 ): { result: string; source: 'template' } {
   const typeLabel = questionTypeLabels[questionType] || '综合'
-  const displayQuestion = question?.trim() || `关于${typeLabel}的近期运势与指引`
 
   const cardDetails = cards.map((c, i) => {
     const position = c.position === 'up' ? '正位' : '逆位'
@@ -37,17 +36,22 @@ export function templateReading(
     }
   })
 
-  // 整体状况
-  const questionLead = question?.trim()
-    ? `关于您问的"${displayQuestion}"`
-    : `关于您${typeLabel}方面的困惑`
-  const spreadDesc = cards.length === 3
-    ? `${questionLead}——过去${cardDetails[0].name}（${cardDetails[0].position}）、现在${cardDetails[1].name}（${cardDetails[1].position}）、未来${cardDetails[2].name}（${cardDetails[2].position}）三张牌共同回应了您的疑问。`
-    : `${questionLead}——${cardDetails[0].name}以${cardDetails[0].position}呈现在您面前。${cardDetails[0].meaning}`
-  let result = `### 整体状况\n\n${spreadDesc}\n`
+  // 行动指引（提前计算，供摘要使用）
+  const adviceList = cardDetails.map(cd => cd.advice).filter(Boolean)
+
+  // 重点摘要
+  const summaryLines: string[] = []
+  for (const cd of cardDetails) {
+    const keyPoint = cd.meaning.slice(0, 40) + (cd.meaning.length > 40 ? '。' : '')
+    summaryLines.push(`${cd.name}（${cd.position}）：${keyPoint}`)
+  }
+  if (adviceList.length > 0) {
+    summaryLines.push(`建议：${adviceList[0].slice(0, 30)}。`)
+  }
+  let result = `### 重点摘要\n\n${summaryLines.join('\n')}\n\n`
 
   // 具体分析
-  result += `\n### 具体分析\n\n`
+  result += `### 具体分析\n\n`
   for (const cd of cardDetails) {
     if (cards.length === 3 && cd.spread) {
       result += `${cd.spread}的位置出现了${cd.name}，以${cd.position}呈现。${cd.meaning}\n\n`
@@ -57,7 +61,6 @@ export function templateReading(
   }
 
   // 行动指引
-  const adviceList = cardDetails.map(cd => cd.advice).filter(Boolean)
   result += `### 行动指引\n\n`
   if (adviceList.length > 0) {
     for (let i = 0; i < adviceList.length; i++) {

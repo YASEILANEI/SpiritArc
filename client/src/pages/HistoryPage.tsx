@@ -22,14 +22,18 @@ export default function HistoryPage({ onBack, onSelect }: Props) {
 
   return (
     <div className="min-h-screen px-4 py-8">
-      <button
-        onClick={onBack}
-        className="mb-6 text-mystic-text/50 hover:text-mystic-gold transition-colors"
-      >
-        ← 返回
-      </button>
-
-      <h2 className="text-2xl font-serif text-mystic-gold mb-6">占卜记录</h2>
+      <div className="w-full max-w-md mx-auto">
+        <div className="flex items-center justify-between mb-6">
+          <button
+            onClick={onBack}
+            className="text-mystic-text/50 hover:text-mystic-gold transition-colors"
+          >
+            ← 返回
+          </button>
+          <h2 className="text-2xl font-serif text-mystic-gold">占卜记录</h2>
+          <div className="w-12" />
+        </div>
+      </div>
 
       {loading ? (
         <p className="text-mystic-text/40 text-center py-10">加载中...</p>

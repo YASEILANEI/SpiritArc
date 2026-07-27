@@ -1,7 +1,6 @@
 import { useState, useEffect } from 'react'
 
 interface Props {
-  cards?: any[]
   spreadType: string
   onComplete: () => void
 }
@@ -15,7 +14,7 @@ const spreadPositionLabels: Record<string, string> = {
   future: '未来',
 }
 
-export default function DrawPage({ cards, spreadType, onComplete }: Props) {
+export default function DrawPage({ spreadType, onComplete }: Props) {
   const [selected, setSelected] = useState<Set<number>>(new Set())
   const [floating, setFloating] = useState<number | null>(null)
   const isThreeCard = spreadType === 'three-card'
@@ -24,7 +23,7 @@ export default function DrawPage({ cards, spreadType, onComplete }: Props) {
 
   useEffect(() => {
     if (allDrawn) {
-      const timer = setTimeout(onComplete, 800)
+      const timer = setTimeout(onComplete, 300)
       return () => clearTimeout(timer)
     }
   }, [allDrawn])
@@ -43,16 +42,6 @@ export default function DrawPage({ cards, spreadType, onComplete }: Props) {
     col: i % COLS,
     idx: i,
   }))
-
-  if (!cards) {
-    return (
-      <div className="min-h-screen flex flex-col items-center justify-center px-4">
-        <div className="w-16 h-16 border-2 border-mystic-gold/30 border-t-mystic-gold rounded-full animate-spin mb-6" />
-        <h2 className="text-lg font-serif text-mystic-gold mb-2">牌灵回应中</h2>
-        <p className="text-mystic-text/40 text-sm">请稍候，牌灵正在回应你的问题...</p>
-      </div>
-    )
-  }
 
   return (
     <div className="min-h-screen flex flex-col items-center justify-center px-4 py-6">
@@ -76,7 +65,7 @@ export default function DrawPage({ cards, spreadType, onComplete }: Props) {
         }}
       >
         <div
-          className="grid gap-[1px]"
+          className="grid gap-[3px]"
           style={{ gridTemplateColumns: `repeat(${COLS}, 1fr)` }}
         >
           {positions.map(({ idx }) => {
@@ -95,8 +84,8 @@ export default function DrawPage({ cards, spreadType, onComplete }: Props) {
                   aspectRatio: '5 / 7',
                   background: 'linear-gradient(135deg, #1a1a2e, #2d1b69)',
                   border: isSelected || isFloating
-                    ? '1px solid rgba(201,168,76,0.6)'
-                    : '1px solid rgba(201,168,76,0.1)',
+                    ? '1px solid rgba(255,215,0,0.8)'
+                    : '1px solid rgba(201,168,76,0.25)',
                   transform: isFloating
                     ? 'translateY(-36px) scale(1.2)'
                     : isSelected

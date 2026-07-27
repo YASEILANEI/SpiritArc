@@ -1,4 +1,4 @@
-import { useMemo } from 'react'
+import { useMemo, useState, useEffect } from 'react'
 import type { Reading, LocalReading } from '../types'
 
 interface Props {
@@ -30,10 +30,55 @@ function parseSections(text: string): Section[] {
   }).filter(s => s.title || s.content)
 }
 
+function sectionStyle(title: string) {
+  if (title === '重点摘要') {
+    return {
+      cardClass: 'bg-gradient-to-br from-mystic-gold/15 to-mystic-card/90 rounded-xl p-5 border border-mystic-gold/40 border-l-4',
+      headerClass: 'text-mystic-gold font-serif text-xl tracking-wide [text-shadow:0_0_12px_rgba(201,168,76,0.3)]',
+    }
+  }
+  return {
+    cardClass: 'bg-mystic-card/90 rounded-xl p-5 border border-mystic-gold/30 border-l-4',
+    headerClass: 'text-mystic-gold font-serif text-xl tracking-wide [text-shadow:0_0_12px_rgba(201,168,76,0.3)]',
+  }
+}
+
+function renderBold(text: string) {
+  const parts = text.split(/(\*\*[^*]+\*\*)/)
+  return parts.map((part, i) => {
+    if (part.startsWith('**') && part.endsWith('**')) {
+      return <strong key={i} className="text-mystic-gold font-semibold">{part.slice(2, -2)}</strong>
+    }
+    return part
+  })
+}
+
 export default function ReadingResultPage({ reading, onBackToResult, onHome }: Props) {
+  const [result, setResult] = useState(reading.readingResult)
+  const isServerReading = typeof reading.id === 'number'
+  const isLoading = isServerReading && !result
+
+  // Poll for AI result when not yet available
+  useEffect(() => {
+    if (!isServerReading || reading.readingResult) return
+    const poll = setInterval(async () => {
+      try {
+        const res = await fetch(`/api/readings/${reading.id}`)
+        if (!res.ok) return
+        const data = await res.json()
+        if (data.readingResult) {
+          setResult(data.readingResult)
+        }
+      } catch { /* ignore */ }
+    }, 2000)
+    return () => clearInterval(poll)
+  }, [])
+
   const sections = useMemo(
-    () => reading.readingResult ? parseSections(reading.readingResult) : [],
-    [reading.readingResult]
+    () => result
+      ? parseSections(result)
+      : [],
+    [result, reading.cards]
   )
   const isOffline = reading.readingSource === 'template'
   const hasQuestion = !!reading.question?.trim()
@@ -80,33 +125,48 @@ export default function ReadingResultPage({ reading, onBackToResult, onHome }: P
         )}
 
         {/* Reading content */}
-        {reading.readingResult ? (
-          <div className="space-y-5">
-            {sections.map((section, i) => (
+        {result ? (
+          <div className="space-y-6">
+            {sections.map((section, i) => {
+              const style = sectionStyle(section.title)
+              const paragraphs = section.content.split('\n').filter(l => l.trim())
+              return (
               <div key={i}>
                 <div
-                  className="bg-mystic-card/80 rounded-xl p-5 border border-mystic-gold/20 animate-fadeIn"
+                  className={`${style.cardClass} animate-fadeIn`}
                   style={{ animationDelay: `${i * 0.15}s` }}
                 >
-                  <h3 className="text-mystic-gold font-serif text-lg mb-3 tracking-wide
-                    [text-shadow:0_0_12px_rgba(201,168,76,0.3)]"
-                  >
+                  <h3 className={style.headerClass}>
+                    <span className="inline-block mr-2 text-mystic-gold/60">✦</span>
                     {section.title}
                   </h3>
-                  <div className="text-mystic-text/70 leading-relaxed text-sm space-y-3 whitespace-pre-wrap">
-                    {section.content.split('\n').filter(l => l.trim()).map((line, j) => (
-                      <p key={j}>{line.trim()}</p>
+                  <div className="w-8 h-0.5 bg-mystic-gold/40 mt-2 mb-4 rounded-full" />
+
+                  <div className="text-mystic-text/70 leading-relaxed text-sm space-y-3">
+                    {paragraphs.map((line, j) => (
+                      <p key={j}>{renderBold(line.trim())}</p>
                     ))}
                   </div>
                 </div>
 
-                {/* Three-card spread summary - between 整体状况 and 具体分析 */}
+                {/* Decorative divider before 牌阵综合 */}
                 {i === 0 && isThreeCard && (
-                  <div className="bg-mystic-card/80 rounded-xl p-5 border border-mystic-gold/20 animate-fadeIn mt-5">
-                    <h3 className="text-mystic-gold font-serif text-lg mb-3 tracking-wide
+                  <div className="flex items-center gap-3 my-6">
+                    <div className="flex-1 h-px bg-gradient-to-r from-transparent via-mystic-gold/20 to-transparent" />
+                    <span className="text-mystic-gold/30 text-xs">✦</span>
+                    <div className="flex-1 h-px bg-gradient-to-r from-transparent via-mystic-gold/20 to-transparent" />
+                  </div>
+                )}
+
+                {/* Three-card spread summary - between 重点摘要 and 具体分析 */}
+                {i === 0 && isThreeCard && (
+                  <div className="bg-mystic-card/90 rounded-xl p-5 border border-mystic-gold/30 border-l-4 animate-fadeIn mt-5">
+                    <h3 className="text-mystic-gold font-serif text-xl tracking-wide
                       [text-shadow:0_0_12px_rgba(201,168,76,0.3)]">
+                      <span className="inline-block mr-2 text-mystic-gold/60">✦</span>
                       牌阵综合
                     </h3>
+                    <div className="w-8 h-0.5 bg-mystic-gold/40 mt-2 mb-4 rounded-full" />
                     <div className="space-y-4">
                       {reading.cards.map((card, j) => {
                         const label = spreadPositionLabels[card.spreadPosition || ''] || `第${j + 1}张`
@@ -124,8 +184,24 @@ export default function ReadingResultPage({ reading, onBackToResult, onHome }: P
                     </div>
                   </div>
                 )}
+
+                {/* Decorative divider between sections */}
+                {i < sections.length - 1 && (
+                  <div className="flex items-center gap-3 my-6">
+                    <div className="flex-1 h-px bg-gradient-to-r from-transparent via-mystic-gold/20 to-transparent" />
+                    <span className="text-mystic-gold/30 text-xs">✦</span>
+                    <div className="flex-1 h-px bg-gradient-to-r from-transparent via-mystic-gold/20 to-transparent" />
+                  </div>
+                )}
               </div>
-            ))}
+              )
+            })}
+          </div>
+        ) : isLoading ? (
+          <div className="bg-mystic-card/80 rounded-xl p-8 text-center border border-mystic-gold/20">
+            <div className="w-12 h-12 border-2 border-mystic-gold/30 border-t-mystic-gold rounded-full animate-spin mx-auto mb-4" />
+            <p className="text-mystic-text/40">解读生成中...</p>
+            <p className="text-mystic-text/30 text-xs mt-2">牌灵正在为你书写指引</p>
           </div>
         ) : (
           <div className="bg-mystic-card/80 rounded-xl p-8 text-center border border-mystic-gold/20">
