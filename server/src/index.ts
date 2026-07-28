@@ -57,8 +57,13 @@ if (process.env.NODE_ENV === 'production') {
   const __dirname = path.dirname(fileURLToPath(import.meta.url))
   const clientDist = path.resolve(__dirname, '..', '..', 'client', 'dist')
   app.use(express.static(clientDist))
-  app.get('*', (_req, res) => {
-    res.sendFile(path.join(clientDist, 'index.html'))
+  // SPA fallback: serve index.html for non-API GET requests
+  app.use((req, res) => {
+    if (req.method === 'GET' && !req.path.startsWith('/api')) {
+      res.sendFile(path.join(clientDist, 'index.html'))
+    } else {
+      res.status(404).json({ error: 'Not found' })
+    }
   })
 }
 
