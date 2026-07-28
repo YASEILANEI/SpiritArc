@@ -176,9 +176,11 @@ export default function HistoryPage({ onBack, onSelect, onSelectResult }: Props)
     <PageContainer>
       <div className="flex flex-col items-center min-h-[70vh] text-center">
         {/* Decorative header */}
-        <div className="text-5xl text-mystic-gold/60 mb-6">⟡</div>
-        <h2 className="text-2xl font-serif text-mystic-gold mb-2">占卜记录</h2>
-        <div className="w-16 h-0.5 bg-mystic-gold/40 mx-auto mb-4 rounded-full" />
+        <div className="pt-8 pb-6">
+          <div className="text-5xl text-mystic-gold/60 mb-6">⟡</div>
+          <h2 className="text-2xl font-serif text-mystic-gold mb-4">占卜记录</h2>
+          <div className="w-16 h-0.5 bg-mystic-gold/40 mx-auto mb-4 rounded-full" />
+        </div>
 
         {/* View toggle */}
         <div className="flex items-center gap-4 mb-4 text-sm">

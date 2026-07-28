@@ -20,42 +20,76 @@ const REFRESH_COOKIE_OPTIONS = {
   maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
 }
 
+// Input validators
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+const PHONE_RE = /^[\d\-+() ]{7,20}$/
+
+function sanitize(str: string): string {
+  return str.replace(/<[^>]*>/g, '').trim()
+}
+
 // POST /api/auth/register
 router.post('/register', async (req: Request, res: Response) => {
   try {
     const { email, phone, password, displayName } = req.body
+
+    // Require at least one identifier + password
     if ((!email && !phone) || !password) {
       res.status(400).json({ error: '邮箱或手机号、密码为必填项' })
       return
     }
-    if (password.length < 6) {
-      res.status(400).json({ error: '密码至少需要6个字符' })
+
+    // Email format check
+    if (email && !EMAIL_RE.test(email)) {
+      res.status(400).json({ error: '邮箱格式不正确' })
       return
     }
 
-    // Check email uniqueness
+    // Phone format check
+    if (phone && !PHONE_RE.test(phone)) {
+      res.status(400).json({ error: '手机号格式不正确' })
+      return
+    }
+
+    // Password strength
+    if (password.length < 8) {
+      res.status(400).json({ error: '密码至少需要 8 个字符' })
+      return
+    }
+    if (password.length > 128) {
+      res.status(400).json({ error: '密码不能超过 128 个字符' })
+      return
+    }
+    if (!/[A-Z]/.test(password)) {
+      res.status(400).json({ error: '密码需要至少一个大写字母' })
+      return
+    }
+    if (!/[0-9]/.test(password)) {
+      res.status(400).json({ error: '密码需要至少一个数字' })
+      return
+    }
+
+    // Check uniqueness (unified error to prevent enumeration)
     if (email) {
       const existing = db.prepare('SELECT id FROM users WHERE email = ?').get(email)
       if (existing) {
-        res.status(409).json({ error: '该邮箱已被注册' })
+        res.status(409).json({ error: '该账号已被注册' })
         return
       }
     }
-
-    // Check phone uniqueness
     if (phone) {
       const existing = db.prepare('SELECT id FROM users WHERE phone = ?').get(phone)
       if (existing) {
-        res.status(409).json({ error: '该手机号已被注册' })
+        res.status(409).json({ error: '该账号已被注册' })
         return
       }
     }
 
     const passwordHash = await bcrypt.hash(password, 10)
-    const defaultName = displayName || (email ? email.split('@')[0] : phone)
+    const safeDisplayName = sanitize(displayName || (email ? email.split('@')[0] : phone || ''))
     const result = db.prepare(
       'INSERT INTO users (email, phone, password_hash, display_name) VALUES (?, ?, ?, ?)'
-    ).run(email || null, phone || null, passwordHash, defaultName)
+    ).run(email || null, phone || null, passwordHash, safeDisplayName)
 
     const userId = result.lastInsertRowid as number
     const payload: TokenPayload = { userId, email: email || '', phone, role: 'free' }

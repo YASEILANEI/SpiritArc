@@ -10,6 +10,7 @@ const NAV_ITEMS = [
   { page: 'home', label: '牌灵首页', icon: '✧' },
   { page: 'history', label: '占卜历史', icon: '⟡' },
   { page: 'about', label: '关于我们', icon: 'ℹ' },
+  { page: 'about-product', label: '关于产品', icon: '✦' },
   { page: 'support', label: '支持一下', icon: '♥' },
 ] as const
 
@@ -20,7 +21,7 @@ export default function NavBar({ currentPage, onNavigate, isAdmin, isAuthenticat
         borderImage: 'linear-gradient(90deg, transparent, rgba(201,168,76,0.3), transparent) 1',
       }}
     >
-      <div className="max-w-4xl mx-auto h-full flex items-center justify-center px-8">
+      <div className="max-w-5xl mx-auto h-full flex items-center justify-center px-8">
         {/* Brand */}
         <button
           onClick={() => onNavigate('home')}
@@ -33,7 +34,7 @@ export default function NavBar({ currentPage, onNavigate, isAdmin, isAuthenticat
         </button>
 
         {/* Navigation */}
-        <div className="flex items-center gap-3 overflow-x-auto flex-nowrap" style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}>
+        <div className="flex items-center gap-5 overflow-x-auto flex-nowrap" style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}>
           {NAV_ITEMS.map(item => {
             const isActive = currentPage === item.page
             return (

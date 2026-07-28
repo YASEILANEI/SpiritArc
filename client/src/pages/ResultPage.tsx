@@ -282,7 +282,7 @@ export default function ResultPage({ reading, onBack, onHome, onShowReadingResul
                 <div>
                   <div className="text-mystic-gold font-serif">牌灵解读</div>
                   <div className="text-mystic-text/40 text-xs mt-0.5">
-                    AI 驱动的深度个性化解读
+                    灵性启迪 · 深度个性化解读
                     {!isLocal && (
                       <span className="text-mystic-text/30 ml-1">（免费用户每周 3 次）</span>
                     )}

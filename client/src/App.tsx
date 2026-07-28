@@ -12,6 +12,7 @@ import ResultPage from './pages/ResultPage'
 import ReadingResultPage from './pages/ReadingResultPage'
 import HistoryPage from './pages/HistoryPage'
 import AboutPage from './pages/AboutPage'
+import AboutProductPage from './pages/AboutProductPage'
 import SupportPage from './pages/SupportPage'
 import LoginPage from './pages/LoginPage'
 import RegisterPage from './pages/RegisterPage'
@@ -22,7 +23,7 @@ import AdminUsersPage from './pages/AdminUsersPage'
 import AdminReadingsPage from './pages/AdminReadingsPage'
 
 type Page = 'home' | 'ask' | 'shuffle' | 'cut' | 'draw' | 'analyzing' | 'result' | 'reading-result' | 'history'
-  | 'login' | 'register' | 'profile' | 'about' | 'support' | 'admin' | 'admin-settings' | 'admin-users' | 'admin-readings'
+  | 'login' | 'register' | 'profile' | 'about' | 'about-product' | 'support' | 'admin' | 'admin-settings' | 'admin-users' | 'admin-readings'
 
 function AppContent() {
   const { user, isAuthenticated, isLoading, logout } = useAuth()
@@ -121,7 +122,7 @@ function AppContent() {
   }
 
   // Pages that show the top NavBar
-  const navBarPages = new Set<Page>(['home', 'history', 'profile', 'about', 'support', 'result', 'reading-result'])
+  const navBarPages = new Set<Page>(['home', 'history', 'profile', 'about', 'about-product', 'support', 'result', 'reading-result'])
 
   const handleNavigate = (target: string) => {
     if (target === 'home') goHome()
@@ -167,6 +168,9 @@ function AppContent() {
       )}
       {page === 'about' && (
         <AboutPage onBack={() => setPage('home')} />
+      )}
+      {page === 'about-product' && (
+        <AboutProductPage onBack={() => setPage('home')} />
       )}
       {page === 'support' && (
         <SupportPage />

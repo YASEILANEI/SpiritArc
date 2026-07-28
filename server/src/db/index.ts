@@ -108,10 +108,17 @@ db.exec(`
 const settingCount = (db.prepare('SELECT COUNT(*) as count FROM settings').get() as any).count
 if (settingCount === 0) {
   const insertSetting = db.prepare('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)')
-  insertSetting.run('OPENCODE_API_KEY', process.env.OPENCODE_API_KEY || '')
   insertSetting.run('OPENCODE_BASE_URL', process.env.OPENCODE_BASE_URL || 'https://opencode.ai/zen/go/v1')
   insertSetting.run('AI_MODEL', 'deepseek-v4-flash')
   insertSetting.run('AI_MAX_TOKENS', '4000')
+}
+
+// Clean up expired refresh tokens on startup
+const cleaned = db.prepare(
+  "DELETE FROM refresh_tokens WHERE expires_at <= datetime('now')"
+).run()
+if (cleaned.changes > 0) {
+  console.log(`🧹 Cleaned ${cleaned.changes} expired refresh tokens`)
 }
 
 // Seed admin account from env

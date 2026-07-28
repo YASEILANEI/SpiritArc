@@ -69,7 +69,7 @@ export async function aiReading(
   question: string,
   cards: any[]
 ): Promise<{ result: string; source: 'ai' } | null> {
-  // Read settings from DB with env fallback
+  // Read settings from DB with env fallback (API key from env only for security)
   const getSetting = (key: string, defaultValue: string): string => {
     try {
       const row = db.prepare('SELECT value FROM settings WHERE key = ?').get(key) as any
@@ -79,7 +79,7 @@ export async function aiReading(
     }
   }
 
-  const apiKey = getSetting('OPENCODE_API_KEY', '')
+  const apiKey = process.env.OPENCODE_API_KEY || ''
   const baseURL = getSetting('OPENCODE_BASE_URL', 'https://opencode.ai/zen/go/v1')
   const model = getSetting('AI_MODEL', 'deepseek-v4-flash')
   const maxTokens = parseInt(getSetting('AI_MAX_TOKENS', '4000'), 10)

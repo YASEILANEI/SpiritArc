@@ -8,7 +8,14 @@ interface Props {
 
 export default function HomePage({ onStart, onHistory, user }: Props) {
   return (
-    <div className="min-h-screen flex flex-col items-center justify-center px-4 pt-16">
+    <div className="min-h-screen flex flex-col items-center justify-center px-4 pt-20">
+      {/* Beta notice */}
+      <div className="fixed top-16 left-0 right-0 z-40 bg-yellow-900/30 backdrop-blur-sm border-b border-yellow-700/30 text-center py-1.5">
+        <p className="text-yellow-400/70 text-xs tracking-wide">
+          ⚡ Beta 测试阶段 · 数据可能在升级后重置
+        </p>
+      </div>
+
       <div className="mb-8 text-center">
         <div className="text-mystic-gold text-6xl mb-4">✧</div>
         <h1 className="text-3xl md:text-5xl font-serif text-mystic-gold mb-2">牌灵占卜</h1>

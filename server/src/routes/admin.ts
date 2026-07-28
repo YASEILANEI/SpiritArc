@@ -202,11 +202,12 @@ router.get('/readings/:id', (req: Request, res: Response) => {
   res.json({ readingResult: reading.reading_result || '' })
 })
 
-// GET /api/admin/settings — get all settings
+// GET /api/admin/settings — get all settings (API key redacted for security)
 router.get('/settings', (_req: Request, res: Response) => {
   const rows = db.prepare('SELECT key, value FROM settings').all() as any[]
   const settings: Record<string, string> = {}
   for (const row of rows) {
+    if (row.key === 'OPENCODE_API_KEY') continue // no longer stored in DB
     settings[row.key] = row.value
   }
   res.json(settings)
@@ -219,7 +220,7 @@ router.put('/settings', (req: Request, res: Response) => {
     res.status(400).json({ error: '请提供 key' })
     return
   }
-  const allowedKeys = ['OPENCODE_API_KEY', 'OPENCODE_BASE_URL', 'AI_MODEL', 'AI_MAX_TOKENS']
+  const allowedKeys = ['OPENCODE_BASE_URL', 'AI_MODEL', 'AI_MAX_TOKENS']
   if (!allowedKeys.includes(key)) {
     res.status(400).json({ error: '不允许修改该设置' })
     return

@@ -6,14 +6,12 @@ interface Props {
 }
 
 const SETTING_LABELS: Record<string, string> = {
-  OPENCODE_API_KEY: 'API Key',
   OPENCODE_BASE_URL: 'API 地址',
   AI_MODEL: '模型名称',
   AI_MAX_TOKENS: '最大 Token 数',
 }
 
 const SETTING_PLACEHOLDERS: Record<string, string> = {
-  OPENCODE_API_KEY: 'sk-...',
   OPENCODE_BASE_URL: 'https://...',
   AI_MODEL: 'deepseek-v4-flash',
   AI_MAX_TOKENS: '4000',

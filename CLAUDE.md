@@ -71,8 +71,9 @@ client/src/
     LoginPage.tsx         Email/phone + password login
     RegisterPage.tsx      Registration form
     ProfilePage.tsx       Display name, subscription info, logout
-    AboutPage.tsx         About page
-    SupportPage.tsx       Support page
+    AboutPage.tsx         Personal intro of the developer
+    AboutProductPage.tsx  Product info (origin, philosophy, features, credits)
+    SupportPage.tsx       Donation page with expandable WeChat/Alipay QR codes
     AdminPage.tsx         Dashboard with stats + module links
     AdminSettingsPage.tsx AI model/key config
     AdminUsersPage.tsx    User management table
@@ -109,7 +110,7 @@ server/src/
 
 ### Page State Machine
 
-App.tsx uses `useState<Page>` (no React Router) with 18 states. The `analyzing` page is rendered inline in App.tsx (spinner, no separate page component). `login` and `register` are actual page components.
+App.tsx uses `useState<Page>` (no React Router) with 19 states. The `analyzing` page is rendered inline in App.tsx (spinner, no separate page component). `login` and `register` are actual page components.
 
 ```
 reading flow:  home → ask → shuffle → cut → draw → analyzing → result → reading-result
@@ -118,14 +119,14 @@ reading flow:  home → ask → shuffle → cut → draw → analyzing → resul
                |
                +--- login → register (auth flow)
                |
-               +--- profile, about, support
+               +--- profile, about, about-product, support
 
 admin pages:   admin, admin-settings, admin-users, admin-readings
 ```
 
 Key behaviors:
 - `handleStart()` routes to `login` if unauthenticated, otherwise `ask`
-- NavBar rendered only on `{home, history, profile, about, support, result, reading-result}`; reading flow pages intentionally hide it for immersion
+- NavBar rendered only on `{home, history, profile, about, about-product, support, result, reading-result}`; reading flow pages intentionally hide it for immersion
 - Admin pages show "unauthorized" unless `user.role === 'admin'`
 - Unauthenticated users can still create offline readings (localStorage fallback)
 
