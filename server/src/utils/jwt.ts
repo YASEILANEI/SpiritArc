@@ -1,10 +1,17 @@
 import jwt from 'jsonwebtoken'
 
-if (process.env.NODE_ENV === 'production' && (!process.env.JWT_SECRET || !process.env.JWT_REFRESH_SECRET)) {
-  throw new Error('JWT_SECRET and JWT_REFRESH_SECRET must be set in production')
+const ACCESS_SECRET = process.env.JWT_SECRET
+const REFRESH_SECRET = process.env.JWT_REFRESH_SECRET
+
+if (!ACCESS_SECRET || !REFRESH_SECRET) {
+  if (process.env.NODE_ENV === 'production') {
+    throw new Error('JWT_SECRET and JWT_REFRESH_SECRET must be set in production')
+  }
+  console.warn('⚠️  WARNING: JWT_SECRET or JWT_REFRESH_SECRET not set. Using weak dev fallback.')
 }
-const ACCESS_SECRET = process.env.JWT_SECRET || 'tarot-access-secret-dev'
-const REFRESH_SECRET = process.env.JWT_REFRESH_SECRET || 'tarot-refresh-secret-dev'
+
+const ACCESS_SECRET_KEY = ACCESS_SECRET || 'tarot-access-secret-dev'
+const REFRESH_SECRET_KEY = REFRESH_SECRET || 'tarot-refresh-secret-dev'
 const ACCESS_EXPIRY = '15m'
 const REFRESH_EXPIRY = '7d'
 
@@ -16,16 +23,16 @@ export interface TokenPayload {
 }
 
 export function generateAccessToken(payload: TokenPayload): string {
-  return jwt.sign(payload, ACCESS_SECRET, { expiresIn: ACCESS_EXPIRY })
+  return jwt.sign(payload, ACCESS_SECRET_KEY, { expiresIn: ACCESS_EXPIRY })
 }
 
 export function generateRefreshToken(payload: TokenPayload): string {
-  return jwt.sign(payload, REFRESH_SECRET, { expiresIn: REFRESH_EXPIRY })
+  return jwt.sign(payload, REFRESH_SECRET_KEY, { expiresIn: REFRESH_EXPIRY })
 }
 
 export function verifyAccessToken(token: string): TokenPayload | null {
   try {
-    return jwt.verify(token, ACCESS_SECRET) as TokenPayload
+    return jwt.verify(token, ACCESS_SECRET_KEY) as TokenPayload
   } catch {
     return null
   }
@@ -33,7 +40,7 @@ export function verifyAccessToken(token: string): TokenPayload | null {
 
 export function verifyRefreshToken(token: string): TokenPayload | null {
   try {
-    return jwt.verify(token, REFRESH_SECRET) as TokenPayload
+    return jwt.verify(token, REFRESH_SECRET_KEY) as TokenPayload
   } catch {
     return null
   }

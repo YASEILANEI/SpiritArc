@@ -42,7 +42,7 @@ export function optionalAuth(req: Request, _res: Response, next: NextFunction): 
 
 export function requireRole(...roles: string[]) {
   return (req: Request, res: Response, next: NextFunction): void => {
-    authMiddleware(req, res, async () => {
+    authMiddleware(req, res, () => {
       const role = req.user?.role
       // Backward compat: old tokens without role — query DB
       if (!role && req.user) {

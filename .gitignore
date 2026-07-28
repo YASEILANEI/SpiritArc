@@ -5,3 +5,7 @@ dist/
 *.db-shm
 temp-images/
 .env
+*.log
+.DS_Store
+/api/
+.claude/
