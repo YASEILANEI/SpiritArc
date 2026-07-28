@@ -9,4 +9,3 @@ temp-images/
 .DS_Store
 /api/
 .claude/
-/client/public/qrcode-*.png
