@@ -2,7 +2,7 @@
   "name": "client",
   "version": "1.0.0",
   "description": "Tarot frontend",
-  "type": "module",
+  "type": "commonjs",
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",
@@ -11,8 +11,8 @@
   "keywords": [],
   "author": "",
   "license": "ISC",
-  "type": "commonjs",
   "dependencies": {
+    "@supabase/supabase-js": "^2.110.9",
     "react": "^19.2.8",
     "react-dom": "^19.2.8"
   },
