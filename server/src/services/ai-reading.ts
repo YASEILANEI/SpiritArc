@@ -1,4 +1,4 @@
-import db from '../db/index.js'
+import sql from '../db/index.js'
 
 const typeLabels: Record<string, string> = {
   love: '感情',
@@ -70,9 +70,9 @@ export async function aiReading(
   cards: any[]
 ): Promise<{ result: string; source: 'ai' } | null> {
   // Read settings from DB with env fallback (API key from env only for security)
-  const getSetting = (key: string, defaultValue: string): string => {
+  const getSetting = async (key: string, defaultValue: string): Promise<string> => {
     try {
-      const row = db.prepare('SELECT value FROM settings WHERE key = ?').get(key) as any
+      const row = (await sql`SELECT value FROM settings WHERE key = ${key}`)[0] as any
       return row?.value || process.env[key] || defaultValue
     } catch {
       return process.env[key] || defaultValue
@@ -80,9 +80,9 @@ export async function aiReading(
   }
 
   const apiKey = process.env.OPENCODE_API_KEY || ''
-  const baseURL = getSetting('OPENCODE_BASE_URL', 'https://opencode.ai/zen/go/v1')
-  const model = getSetting('AI_MODEL', 'deepseek-v4-flash')
-  const maxTokens = parseInt(getSetting('AI_MAX_TOKENS', '4000'), 10)
+  const baseURL = await getSetting('OPENCODE_BASE_URL', 'https://opencode.ai/zen/go/v1')
+  const model = await getSetting('AI_MODEL', 'deepseek-v4-flash')
+  const maxTokens = parseInt(await getSetting('AI_MAX_TOKENS', '4000'), 10)
 
   try {
     const controller = new AbortController()

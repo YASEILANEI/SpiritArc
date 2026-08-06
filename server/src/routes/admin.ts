@@ -1,5 +1,5 @@
 import { Router, Request, Response } from 'express'
-import db from '../db/index.js'
+import sql from '../db/index.js'
 import { requireRole } from '../middleware/auth.js'
 
 const router = Router()
@@ -8,21 +8,13 @@ const router = Router()
 router.use(requireRole('admin'))
 
 // GET /api/admin/stats — total counts (including soft-deleted)
-router.get('/stats', (_req: Request, res: Response) => {
-  const totalUsers = (db.prepare('SELECT COUNT(*) as count FROM users').get() as any).count
+router.get('/stats', async (_req: Request, res: Response) => {
+  const totalUsers = (await sql`SELECT COUNT(*)::int as count FROM users`)[0].count
+  const totalReadings = (await sql`SELECT COUNT(*)::int as count FROM readings`)[0].count
+  const todayReadings = (await sql`SELECT COUNT(*)::int as count FROM readings WHERE created_at::date = CURRENT_DATE`)[0].count
+  const activeUsers = (await sql`SELECT COUNT(DISTINCT user_id)::int as count FROM readings WHERE user_id IS NOT NULL`)[0].count
 
-  // Count ALL readings including soft-deleted for historical totals
-  const totalReadings = (db.prepare('SELECT COUNT(*) as count FROM readings').get() as any).count
-  const todayReadings = (db.prepare(
-    "SELECT COUNT(*) as count FROM readings WHERE date(created_at) = date('now')"
-  ).get() as any).count
-  const activeUsers = (db.prepare(
-    'SELECT COUNT(DISTINCT user_id) as count FROM readings WHERE user_id IS NOT NULL'
-  ).get() as any).count
-
-  const sourceStats = db.prepare(
-    "SELECT reading_source, COUNT(*) as count FROM readings WHERE reading_source IS NOT NULL GROUP BY reading_source"
-  ).all() as any[]
+  const sourceStats = await sql`SELECT reading_source, COUNT(*)::int as count FROM readings WHERE reading_source IS NOT NULL GROUP BY reading_source`
 
   const aiCount = sourceStats.find((s: any) => s.reading_source === 'ai')?.count || 0
   const templateCount = sourceStats.find((s: any) => s.reading_source === 'template')?.count || 0
@@ -38,23 +30,20 @@ router.get('/stats', (_req: Request, res: Response) => {
 })
 
 // GET /api/admin/users
-router.get('/users', (req: Request, res: Response) => {
+router.get('/users', async (req: Request, res: Response) => {
   const page = Math.max(1, parseInt(req.query.page as string) || 1)
   const limit = Math.min(100, Math.max(1, parseInt(req.query.limit as string) || 20))
   const offset = (page - 1) * limit
   const search = (req.query.search as string) || ''
 
-  let where = ''
-  const params: any[] = []
-  if (search) {
-    where = 'WHERE email LIKE ? OR phone LIKE ? OR display_name LIKE ?'
-    params.push(`%${search}%`, `%${search}%`, `%${search}%`)
-  }
+  const searchCond = search
+    ? sql`WHERE email LIKE ${`%${search}%`} OR phone LIKE ${`%${search}%`} OR display_name LIKE ${`%${search}%`}`
+    : sql``
 
-  const total = (db.prepare(`SELECT COUNT(*) as count FROM users ${where}`).get(...params) as any).count
-  const users = db.prepare(
-    `SELECT id, email, phone, display_name, avatar_url, auth_provider, role, created_at, updated_at FROM users ${where} ORDER BY created_at DESC LIMIT ? OFFSET ?`
-  ).all(...params, limit, offset) as any[]
+  const total = (await sql`SELECT COUNT(*)::int as count FROM users ${searchCond}`)[0].count
+  const users = await sql`
+    SELECT id, email, phone, display_name, avatar_url, auth_provider, role, created_at, updated_at FROM users ${searchCond} ORDER BY created_at DESC LIMIT ${limit} OFFSET ${offset}
+  `
 
   res.json({
     users: users.map((u: any) => ({
@@ -73,19 +62,15 @@ router.get('/users', (req: Request, res: Response) => {
 })
 
 // GET /api/admin/users/:id
-router.get('/users/:id', (req: Request, res: Response) => {
-  const user = db.prepare(
-    'SELECT id, email, phone, display_name, avatar_url, auth_provider, role, created_at, updated_at FROM users WHERE id = ?'
-  ).get(Number(req.params.id)) as any
+router.get('/users/:id', async (req: Request, res: Response) => {
+  const user = (await sql`SELECT id, email, phone, display_name, avatar_url, auth_provider, role, created_at, updated_at FROM users WHERE id = ${Number(req.params.id)}`)[0] as any
 
   if (!user) {
     res.status(404).json({ error: '用户不存在' })
     return
   }
 
-  const readings = db.prepare(
-    'SELECT id, question_type, question, spread_type, reading_source, created_at FROM readings WHERE user_id = ? ORDER BY created_at DESC LIMIT 50'
-  ).all(user.id) as any[]
+  const readings = await sql`SELECT id, question_type, question, spread_type, reading_source, created_at FROM readings WHERE user_id = ${user.id} ORDER BY created_at DESC LIMIT 50`
 
   res.json({
     user: {
@@ -111,7 +96,7 @@ router.get('/users/:id', (req: Request, res: Response) => {
 })
 
 // PUT /api/admin/users/:id/role
-router.put('/users/:id/role', (req: Request, res: Response) => {
+router.put('/users/:id/role', async (req: Request, res: Response) => {
   const targetId = Number(req.params.id)
   const { role } = req.body
 
@@ -125,12 +110,12 @@ router.put('/users/:id/role', (req: Request, res: Response) => {
     return
   }
 
-  db.prepare('UPDATE users SET role = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?').run(role, targetId)
+  await sql`UPDATE users SET role = ${role}, updated_at = now() WHERE id = ${targetId}`
   res.json({ ok: true })
 })
 
 // DELETE /api/admin/users/:id
-router.delete('/users/:id', (req: Request, res: Response) => {
+router.delete('/users/:id', async (req: Request, res: Response) => {
   const targetId = Number(req.params.id)
 
   if (targetId === req.user!.userId) {
@@ -138,23 +123,23 @@ router.delete('/users/:id', (req: Request, res: Response) => {
     return
   }
 
-  db.prepare('DELETE FROM refresh_tokens WHERE user_id = ?').run(targetId)
-  db.prepare('DELETE FROM readings WHERE user_id = ?').run(targetId)
-  db.prepare('DELETE FROM users WHERE id = ?').run(targetId)
+  await sql`DELETE FROM refresh_tokens WHERE user_id = ${targetId}`
+  await sql`DELETE FROM readings WHERE user_id = ${targetId}`
+  await sql`DELETE FROM users WHERE id = ${targetId}`
   res.json({ ok: true })
 })
 
 // GET /api/admin/readings
-router.get('/readings', (req: Request, res: Response) => {
+router.get('/readings', async (req: Request, res: Response) => {
   const page = Math.max(1, parseInt(req.query.page as string) || 1)
   const limit = Math.min(100, Math.max(1, parseInt(req.query.limit as string) || 8))
   const offset = (page - 1) * limit
 
-  const total = (db.prepare('SELECT COUNT(*) as count FROM readings').get() as any).count
-  const readings = db.prepare(
-    `SELECT r.id, r.question_type, r.question, r.spread_type, r.reading_source, r.user_id, r.is_public, r.created_at, r.deleted_at, r.hidden_at, u.display_name
-     FROM readings r LEFT JOIN users u ON r.user_id = u.id ORDER BY r.created_at DESC LIMIT ? OFFSET ?`
-  ).all(limit, offset) as any[]
+  const total = (await sql`SELECT COUNT(*)::int as count FROM readings`)[0].count
+  const readings = await sql`
+    SELECT r.id, r.question_type, r.question, r.spread_type, r.reading_source, r.user_id, r.is_public, r.created_at, r.deleted_at, r.hidden_at, u.display_name
+    FROM readings r LEFT JOIN users u ON r.user_id = u.id ORDER BY r.created_at DESC LIMIT ${limit} OFFSET ${offset}
+  `
 
   res.json({
     readings: readings.map((r: any) => ({
@@ -175,26 +160,25 @@ router.get('/readings', (req: Request, res: Response) => {
 })
 
 // POST /api/admin/readings/batch-delete
-router.post('/readings/batch-delete', (req: Request, res: Response) => {
+router.post('/readings/batch-delete', async (req: Request, res: Response) => {
   const { ids } = req.body
   if (!Array.isArray(ids) || ids.length === 0) {
     res.status(400).json({ error: '请提供要删除的记录 ID' })
     return
   }
-  const placeholders = ids.map(() => '?').join(',')
-  db.prepare(`DELETE FROM readings WHERE id IN (${placeholders})`).run(...ids)
+  await sql`DELETE FROM readings WHERE id IN ${sql(ids)}`
   res.json({ deleted: ids.length })
 })
 
 // DELETE /api/admin/readings/:id
-router.delete('/readings/:id', (req: Request, res: Response) => {
-  db.prepare('DELETE FROM readings WHERE id = ?').run(Number(req.params.id))
+router.delete('/readings/:id', async (req: Request, res: Response) => {
+  await sql`DELETE FROM readings WHERE id = ${Number(req.params.id)}`
   res.json({ ok: true })
 })
 
 // GET /api/admin/readings/:id — get full reading details (admin view)
-router.get('/readings/:id', (req: Request, res: Response) => {
-  const reading = db.prepare('SELECT * FROM readings WHERE id = ?').get(Number(req.params.id)) as any
+router.get('/readings/:id', async (req: Request, res: Response) => {
+  const reading = (await sql`SELECT * FROM readings WHERE id = ${Number(req.params.id)}`)[0] as any
   if (!reading) {
     res.status(404).json({ error: '记录不存在' })
     return
@@ -203,8 +187,8 @@ router.get('/readings/:id', (req: Request, res: Response) => {
 })
 
 // GET /api/admin/settings — get all settings (API key redacted for security)
-router.get('/settings', (_req: Request, res: Response) => {
-  const rows = db.prepare('SELECT key, value FROM settings').all() as any[]
+router.get('/settings', async (_req: Request, res: Response) => {
+  const rows = await sql`SELECT key, value FROM settings`
   const settings: Record<string, string> = {}
   for (const row of rows) {
     if (row.key === 'OPENCODE_API_KEY') continue // no longer stored in DB
@@ -214,7 +198,7 @@ router.get('/settings', (_req: Request, res: Response) => {
 })
 
 // PUT /api/admin/settings — update settings
-router.put('/settings', (req: Request, res: Response) => {
+router.put('/settings', async (req: Request, res: Response) => {
   const { key, value } = req.body
   if (!key) {
     res.status(400).json({ error: '请提供 key' })
@@ -225,7 +209,7 @@ router.put('/settings', (req: Request, res: Response) => {
     res.status(400).json({ error: '不允许修改该设置' })
     return
   }
-  db.prepare('INSERT OR REPLACE INTO settings (key, value, updated_at) VALUES (?, ?, CURRENT_TIMESTAMP)').run(key, String(value))
+  await sql`INSERT INTO settings (key, value, updated_at) VALUES (${key}, ${String(value)}, now()) ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = now()`
   res.json({ ok: true })
 })
 

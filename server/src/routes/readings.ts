@@ -2,7 +2,7 @@ import { Router } from 'express'
 import { readFileSync } from 'fs'
 import path from 'path'
 import { fileURLToPath } from 'url'
-import db from '../db/index.js'
+import sql from '../db/index.js'
 import { templateReading } from '../services/template-reading.js'
 import { aiReading } from '../services/ai-reading.js'
 import { authMiddleware, optionalAuth } from '../middleware/auth.js'
@@ -45,18 +45,19 @@ router.post('/', authMiddleware, async (req, res) => {
   })
   const { result: readingResult, source: readingSource } = templateReading(questionType, question, fullCards)
 
-  const stmt = db.prepare(
-    'INSERT INTO readings (question_type, question, cards, spread_type, reading_result, reading_source, user_id, is_public) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
-  )
-  const insertResult = stmt.run(questionType, question, JSON.stringify(drawCards), spreadType, readingResult, readingSource, req.user!.userId, isPublic ? 1 : 0)
-
-  const reading = db.prepare('SELECT * FROM readings WHERE id = ?').get(insertResult.lastInsertRowid) as any
+  const inserted = await sql`
+    INSERT INTO readings (question_type, question, cards, spread_type, reading_result, reading_source, user_id, is_public)
+    VALUES (${questionType}, ${question}, ${JSON.stringify(drawCards)}, ${spreadType}, ${readingResult}, ${readingSource}, ${req.user!.userId}, ${isPublic ? 1 : 0})
+    RETURNING id
+  `
+  const readingId = inserted[0].id as number
+  const reading = (await sql`SELECT * FROM readings WHERE id = ${readingId}`)[0] as any
   res.status(201).json(formatReading(reading, allCards))
 })
 
 // POST /api/readings/:id/ai-reading — upgrade template reading to AI (weekly limited for free users)
 router.post('/:id/ai-reading', authMiddleware, async (req, res) => {
-  const reading = db.prepare('SELECT * FROM readings WHERE id = ?').get(Number(req.params.id)) as any
+  const reading = (await sql`SELECT * FROM readings WHERE id = ${Number(req.params.id)}`)[0] as any
   if (!reading) {
     res.status(404).json({ error: '占卜记录不存在' })
     return
@@ -75,18 +76,18 @@ router.post('/:id/ai-reading', authMiddleware, async (req, res) => {
   if (role !== 'admin') {
     if (role === 'premium') {
       const monthAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString()
-      const monthlyCount = (db.prepare(
-        "SELECT COUNT(*) as count FROM readings WHERE user_id = ? AND reading_source = 'ai' AND created_at >= ?"
-      ).get(req.user!.userId, monthAgo) as any).count
+      const monthlyCount = (await sql`
+        SELECT COUNT(*)::int as count FROM readings WHERE user_id = ${req.user!.userId} AND reading_source = 'ai' AND created_at >= ${monthAgo}
+      `)[0].count
       if (monthlyCount >= 100) {
         res.status(403).json({ error: '本月牌灵解读次数已达上限（100次）', limit: 100, remaining: 0 })
         return
       }
     } else {
       const weekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString()
-      const weeklyCount = (db.prepare(
-        "SELECT COUNT(*) as count FROM readings WHERE user_id = ? AND reading_source = 'ai' AND created_at >= ?"
-      ).get(req.user!.userId, weekAgo) as any).count
+      const weeklyCount = (await sql`
+        SELECT COUNT(*)::int as count FROM readings WHERE user_id = ${req.user!.userId} AND reading_source = 'ai' AND created_at >= ${weekAgo}
+      `)[0].count
       if (weeklyCount >= 3) {
         res.status(403).json({ error: '本周牌灵解读次数已达上限（3次）', limit: 3, remaining: 0 })
         return
@@ -109,97 +110,78 @@ router.post('/:id/ai-reading', authMiddleware, async (req, res) => {
     res.status(502).json({ error: '牌灵解读生成失败，请稍后重试' })
     return
   }
-  db.prepare(
-    'UPDATE readings SET reading_result = ?, reading_source = ? WHERE id = ?'
-  ).run(aiResult.result, aiResult.source, reading.id)
+  await sql`UPDATE readings SET reading_result = ${aiResult.result}, reading_source = ${aiResult.source} WHERE id = ${reading.id}`
   // Re-fetch updated reading
-  const updated = db.prepare('SELECT * FROM readings WHERE id = ?').get(reading.id) as any
+  const updated = (await sql`SELECT * FROM readings WHERE id = ${reading.id}`)[0] as any
   res.json(formatReading(updated, allCards))
 })
-router.post('/batch-sync', authMiddleware, (req, res) => {
+
+// POST /api/readings/batch-sync — push local readings to server after login
+router.post('/batch-sync', authMiddleware, async (req, res) => {
   const { readings } = req.body
   if (!Array.isArray(readings) || readings.length === 0) {
     res.status(400).json({ error: '请提供有效的占卜记录列表' })
     return
   }
 
-  const stmt = db.prepare(
-    'INSERT INTO readings (question_type, question, cards, spread_type, reading_result, reading_source, user_id, is_public) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
-  )
-
-  const insertMany = db.transaction((items: any[]) => {
-    let count = 0
-    for (const r of items) {
-      stmt.run(r.questionType || 'general', r.question || '', JSON.stringify(r.cards || []), r.spreadType || 'single', r.readingResult || null, r.readingSource || 'template', req.user!.userId, 0)
-      count++
+  let imported = 0
+  await sql.begin(async tx => {
+    for (const r of readings) {
+      await tx`INSERT INTO readings (question_type, question, cards, spread_type, reading_result, reading_source, user_id, is_public)
+        VALUES (${r.questionType || 'general'}, ${r.question || ''}, ${JSON.stringify(r.cards || [])}, ${r.spreadType || 'single'}, ${r.readingResult || null}, ${r.readingSource || 'template'}, ${req.user!.userId}, 0)`
+      imported++
     }
-    return count
   })
-
-  const imported = insertMany(readings)
   res.json({ imported })
 })
 
 // POST /api/readings/batch-delete — soft delete multiple readings
-router.post('/batch-delete', authMiddleware, (req, res) => {
+router.post('/batch-delete', authMiddleware, async (req, res) => {
   const { ids } = req.body
   if (!Array.isArray(ids) || ids.length === 0) {
     res.status(400).json({ error: '请提供要删除的记录 ID' })
     return
   }
   // Only delete own readings
-  const placeholders = ids.map(() => '?').join(',')
-  const result = db.prepare(
-    `UPDATE readings SET deleted_at = CURRENT_TIMESTAMP WHERE id IN (${placeholders}) AND user_id = ?`
-  ).run(...ids, req.user!.userId)
-  res.json({ deleted: result.changes })
+  const result = await sql`UPDATE readings SET deleted_at = now() WHERE id IN ${sql(ids)} AND user_id = ${req.user!.userId}`
+  res.json({ deleted: result.count })
 })
 
 // POST /api/readings/batch-hide — hide multiple readings from user view
-router.post('/batch-hide', authMiddleware, (req, res) => {
+router.post('/batch-hide', authMiddleware, async (req, res) => {
   const { ids } = req.body
   if (!Array.isArray(ids) || ids.length === 0) {
     res.status(400).json({ error: '请提供要隐藏的记录 ID' })
     return
   }
-  const placeholders = ids.map(() => '?').join(',')
-  const result = db.prepare(
-    `UPDATE readings SET hidden_at = CURRENT_TIMESTAMP WHERE id IN (${placeholders}) AND user_id = ?`
-  ).run(...ids, req.user!.userId)
-  res.json({ hidden: result.changes })
+  const result = await sql`UPDATE readings SET hidden_at = now() WHERE id IN ${sql(ids)} AND user_id = ${req.user!.userId}`
+  res.json({ hidden: result.count })
 })
 
 // POST /api/readings/batch-unhide — unhide multiple readings
-router.post('/batch-unhide', authMiddleware, (req, res) => {
+router.post('/batch-unhide', authMiddleware, async (req, res) => {
   const { ids } = req.body
   if (!Array.isArray(ids) || ids.length === 0) {
     res.status(400).json({ error: '请提供要取消隐藏的记录 ID' })
     return
   }
-  const placeholders = ids.map(() => '?').join(',')
-  const result = db.prepare(
-    `UPDATE readings SET hidden_at = NULL WHERE id IN (${placeholders}) AND user_id = ?`
-  ).run(...ids, req.user!.userId)
-  res.json({ unhidden: result.changes })
+  const result = await sql`UPDATE readings SET hidden_at = NULL WHERE id IN ${sql(ids)} AND user_id = ${req.user!.userId}`
+  res.json({ unhidden: result.count })
 })
-
 
 // GET /api/readings — get reading history (own readings only)
 // ?filter=hidden — show hidden readings instead of active ones
-router.get('/', authMiddleware, (req, res) => {
+router.get('/', authMiddleware, async (req, res) => {
   const showHidden = req.query.filter === 'hidden'
-  const condition = showHidden
-    ? "hidden_at IS NOT NULL AND deleted_at IS NULL"
-    : "hidden_at IS NULL AND deleted_at IS NULL"
-  const readings = db.prepare(
-    `SELECT * FROM readings WHERE user_id = ? AND ${condition} ORDER BY created_at DESC LIMIT 50`
-  ).all(req.user!.userId) as any[]
+  const readings = showHidden
+    ? await sql`SELECT * FROM readings WHERE user_id = ${req.user!.userId} AND hidden_at IS NOT NULL AND deleted_at IS NULL ORDER BY created_at DESC LIMIT 50`
+    : await sql`SELECT * FROM readings WHERE user_id = ${req.user!.userId} AND hidden_at IS NULL AND deleted_at IS NULL ORDER BY created_at DESC LIMIT 50`
   res.json(readings.map(r => formatReading(r, allCards)))
 })
 
 // GET /api/readings/:id — get single reading
-router.get('/:id', optionalAuth, (req, res) => {
-  const reading = db.prepare('SELECT * FROM readings WHERE id = ?').get(Number(req.params.id)) as any
+router.get('/:id', optionalAuth, async (req, res) => {
+  const reading = (await sql`SELECT * FROM readings WHERE id = ${Number(req.params.id)}`)[0] as any
   if (!reading) {
     res.status(404).json({ error: 'Reading not found' })
     return
@@ -213,9 +195,9 @@ router.get('/:id', optionalAuth, (req, res) => {
 })
 
 // PUT /api/readings/:id/privacy — toggle public/private
-router.put('/:id/privacy', authMiddleware, (req, res) => {
+router.put('/:id/privacy', authMiddleware, async (req, res) => {
   const { isPublic } = req.body
-  const reading = db.prepare('SELECT * FROM readings WHERE id = ?').get(Number(req.params.id)) as any
+  const reading = (await sql`SELECT * FROM readings WHERE id = ${Number(req.params.id)}`)[0] as any
   if (!reading) {
     res.status(404).json({ error: 'Reading not found' })
     return
@@ -224,13 +206,13 @@ router.put('/:id/privacy', authMiddleware, (req, res) => {
     res.status(403).json({ error: '仅可修改自己的记录' })
     return
   }
-  db.prepare('UPDATE readings SET is_public = ? WHERE id = ?').run(isPublic ? 1 : 0, Number(req.params.id))
+  await sql`UPDATE readings SET is_public = ${isPublic ? 1 : 0} WHERE id = ${Number(req.params.id)}`
   res.json({ ok: true })
 })
 
 // DELETE /api/readings/:id — soft-delete a reading
-router.delete('/:id', authMiddleware, (req, res) => {
-  const reading = db.prepare('SELECT * FROM readings WHERE id = ?').get(Number(req.params.id)) as any
+router.delete('/:id', authMiddleware, async (req, res) => {
+  const reading = (await sql`SELECT * FROM readings WHERE id = ${Number(req.params.id)}`)[0] as any
   if (!reading) {
     res.status(404).json({ error: 'Reading not found' })
     return
@@ -240,13 +222,13 @@ router.delete('/:id', authMiddleware, (req, res) => {
     return
   }
   // Soft delete — keep record for stats
-  db.prepare('UPDATE readings SET deleted_at = CURRENT_TIMESTAMP WHERE id = ?').run(Number(req.params.id))
+  await sql`UPDATE readings SET deleted_at = now() WHERE id = ${Number(req.params.id)}`
   res.json({ ok: true })
 })
 
 // POST /api/readings/:id/hide — hide a reading from user view (admin still sees)
-router.post('/:id/hide', authMiddleware, (req, res) => {
-  const reading = db.prepare('SELECT * FROM readings WHERE id = ?').get(Number(req.params.id)) as any
+router.post('/:id/hide', authMiddleware, async (req, res) => {
+  const reading = (await sql`SELECT * FROM readings WHERE id = ${Number(req.params.id)}`)[0] as any
   if (!reading) {
     res.status(404).json({ error: 'Reading not found' })
     return
@@ -255,13 +237,13 @@ router.post('/:id/hide', authMiddleware, (req, res) => {
     res.status(403).json({ error: '无权操作该记录' })
     return
   }
-  db.prepare('UPDATE readings SET hidden_at = CURRENT_TIMESTAMP WHERE id = ?').run(Number(req.params.id))
+  await sql`UPDATE readings SET hidden_at = now() WHERE id = ${Number(req.params.id)}`
   res.json({ ok: true })
 })
 
 // POST /api/readings/:id/unhide — unhide a reading
-router.post('/:id/unhide', authMiddleware, (req, res) => {
-  const reading = db.prepare('SELECT * FROM readings WHERE id = ?').get(Number(req.params.id)) as any
+router.post('/:id/unhide', authMiddleware, async (req, res) => {
+  const reading = (await sql`SELECT * FROM readings WHERE id = ${Number(req.params.id)}`)[0] as any
   if (!reading) {
     res.status(404).json({ error: 'Reading not found' })
     return
@@ -270,10 +252,9 @@ router.post('/:id/unhide', authMiddleware, (req, res) => {
     res.status(403).json({ error: '无权操作该记录' })
     return
   }
-  db.prepare('UPDATE readings SET hidden_at = NULL WHERE id = ?').run(Number(req.params.id))
+  await sql`UPDATE readings SET hidden_at = NULL WHERE id = ${Number(req.params.id)}`
   res.json({ ok: true })
 })
-
 
 function spreadCardIds(spread: string): number {
   switch (spread) {

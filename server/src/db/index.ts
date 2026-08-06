@@ -1,143 +1,102 @@
-import Database from 'better-sqlite3'
-import path from 'path'
-import { fileURLToPath } from 'url'
+import postgres from 'postgres'
 import bcrypt from 'bcryptjs'
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url))
-const dbPath = path.join(__dirname, '..', 'data', 'tarot.db')
+const url = process.env.DATABASE_URL
+if (!url) {
+  throw new Error('DATABASE_URL must be set in environment variables')
+}
 
-const db = new Database(dbPath)
+// Neon requires TLS
+const sql = postgres(url, { ssl: 'require' })
 
-// Enable WAL mode for better concurrent performance
-db.pragma('journal_mode = WAL')
-
-db.exec(`
+await sql`
   CREATE TABLE IF NOT EXISTS users (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    id SERIAL PRIMARY KEY,
     email TEXT UNIQUE,
+    phone TEXT UNIQUE,
     password_hash TEXT,
     display_name TEXT,
     avatar_url TEXT,
     auth_provider TEXT DEFAULT 'local',
     auth_provider_id TEXT,
     role TEXT DEFAULT 'free',
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    created_at TIMESTAMPTZ DEFAULT now(),
+    updated_at TIMESTAMPTZ DEFAULT now()
   )
-`)
+`
 
-db.exec(`
+await sql`
   CREATE TABLE IF NOT EXISTS refresh_tokens (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    id SERIAL PRIMARY KEY,
     user_id INTEGER NOT NULL REFERENCES users(id),
     token TEXT NOT NULL UNIQUE,
-    expires_at DATETIME NOT NULL,
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    expires_at TIMESTAMPTZ NOT NULL,
+    created_at TIMESTAMPTZ DEFAULT now()
   )
-`)
+`
 
-db.exec(`
+await sql`
   CREATE TABLE IF NOT EXISTS readings (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    id SERIAL PRIMARY KEY,
     question_type TEXT,
     question TEXT,
     cards TEXT NOT NULL,
     spread_type TEXT DEFAULT 'single',
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    reading_result TEXT,
+    reading_source TEXT DEFAULT 'template',
+    user_id INTEGER REFERENCES users(id),
+    is_public SMALLINT DEFAULT 1,
+    created_at TIMESTAMPTZ DEFAULT now(),
+    deleted_at TIMESTAMPTZ,
+    hidden_at TIMESTAMPTZ
   )
-`)
-
-// Migration: add reading_result and reading_source columns if not present
-const hasResultCol = db.prepare(
-  "SELECT name FROM pragma_table_info('readings') WHERE name = 'reading_result'"
-).get()
-if (!hasResultCol) {
-  db.exec("ALTER TABLE readings ADD COLUMN reading_result TEXT")
-  db.exec("ALTER TABLE readings ADD COLUMN reading_source TEXT DEFAULT 'template'")
-}
-
-// Migration: add user_id and is_public to readings
-const hasUserIdCol = db.prepare(
-  "SELECT name FROM pragma_table_info('readings') WHERE name = 'user_id'"
-).get()
-if (!hasUserIdCol) {
-  db.exec("ALTER TABLE readings ADD COLUMN user_id INTEGER REFERENCES users(id)")
-  db.exec("ALTER TABLE readings ADD COLUMN is_public INTEGER DEFAULT 1")
-}
-
-// Migration: add phone to users
-const hasPhoneCol = db.prepare(
-  "SELECT name FROM pragma_table_info('users') WHERE name = 'phone'"
-).get()
-if (!hasPhoneCol) {
-  db.exec("ALTER TABLE users ADD COLUMN phone TEXT")
-}
-// Add unique index on phone (separate from ALTER to support existing tables)
-db.exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_users_phone ON users(phone)`)
+`
 
 // Create indexes for performance
-db.exec(`CREATE INDEX IF NOT EXISTS idx_readings_user_id ON readings(user_id)`)
-db.exec(`CREATE INDEX IF NOT EXISTS idx_readings_created_at ON readings(created_at)`)
-db.exec(`CREATE INDEX IF NOT EXISTS idx_readings_source ON readings(reading_source)`)
+await sql`CREATE INDEX IF NOT EXISTS idx_readings_user_id ON readings(user_id)`
+await sql`CREATE INDEX IF NOT EXISTS idx_readings_created_at ON readings(created_at)`
+await sql`CREATE INDEX IF NOT EXISTS idx_readings_source ON readings(reading_source)`
 
-// Migration: add deleted_at for soft delete
-const hasDeletedAt = db.prepare(
-  "SELECT name FROM pragma_table_info('readings') WHERE name = 'deleted_at'"
-).get()
-if (!hasDeletedAt) {
-  db.exec("ALTER TABLE readings ADD COLUMN deleted_at DATETIME")
-}
-
-// Migration: add hidden_at for user-hide (admin still sees)
-const hasHiddenAt = db.prepare(
-  "SELECT name FROM pragma_table_info('readings') WHERE name = 'hidden_at'"
-).get()
-if (!hasHiddenAt) {
-  db.exec("ALTER TABLE readings ADD COLUMN hidden_at DATETIME")
-}
-
-// Create settings table for admin-configurable options
-db.exec(`
+// Settings table for admin-configurable options
+await sql`
   CREATE TABLE IF NOT EXISTS settings (
     key TEXT PRIMARY KEY,
     value TEXT NOT NULL,
-    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    updated_at TIMESTAMPTZ DEFAULT now()
   )
-`)
-// Seed default settings
-const settingCount = (db.prepare('SELECT COUNT(*) as count FROM settings').get() as any).count
-if (settingCount === 0) {
-  const insertSetting = db.prepare('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)')
-  insertSetting.run('OPENCODE_BASE_URL', process.env.OPENCODE_BASE_URL || 'https://opencode.ai/zen/go/v1')
-  insertSetting.run('AI_MODEL', 'deepseek-v4-flash')
-  insertSetting.run('AI_MAX_TOKENS', '4000')
+`
+// Seed default settings (preserve any admin-modified values)
+const defaultSettings: [string, string][] = [
+  ['OPENCODE_BASE_URL', process.env.OPENCODE_BASE_URL || 'https://opencode.ai/zen/go/v1'],
+  ['AI_MODEL', 'deepseek-v4-flash'],
+  ['AI_MAX_TOKENS', '4000'],
+]
+for (const [key, value] of defaultSettings) {
+  await sql`INSERT INTO settings (key, value) VALUES (${key}, ${value}) ON CONFLICT (key) DO NOTHING`
 }
 
 // Clean up expired refresh tokens on startup
-const cleaned = db.prepare(
-  "DELETE FROM refresh_tokens WHERE expires_at <= datetime('now')"
-).run()
-if (cleaned.changes > 0) {
-  console.log(`🧹 Cleaned ${cleaned.changes} expired refresh tokens`)
+const cleaned = await sql`DELETE FROM refresh_tokens WHERE expires_at <= now()`
+if (cleaned.count > 0) {
+  console.log(`🧹 Cleaned ${cleaned.count} expired refresh tokens`)
 }
 
 // Seed admin account from env
 const adminEmail = process.env.ADMIN_EMAIL
 const adminPassword = process.env.ADMIN_PASSWORD
 if (adminEmail && adminPassword) {
-  const existing = db.prepare('SELECT id, role FROM users WHERE email = ?').get(adminEmail) as any
-  if (!existing) {
+  const existing = await sql`SELECT id, role FROM users WHERE email = ${adminEmail}`
+  const user = existing[0] as { id: number; role: string } | undefined
+  if (!user) {
     const hash = bcrypt.hashSync(adminPassword, 10)
-    db.prepare(
-      'INSERT INTO users (email, password_hash, display_name, role) VALUES (?, ?, ?, ?)'
-    ).run(adminEmail, hash, 'Admin', 'admin')
+    await sql`INSERT INTO users (email, password_hash, display_name, role) VALUES (${adminEmail}, ${hash}, 'Admin', 'admin')`
     console.log('✅ Admin account created')
-  } else if (existing.role !== 'admin') {
-    db.prepare('UPDATE users SET role = ? WHERE id = ?').run('admin', existing.id)
+  } else if (user.role !== 'admin') {
+    await sql`UPDATE users SET role = 'admin' WHERE id = ${user.id}`
     console.log('✅ Existing user upgraded to admin')
   } else {
     console.log('✅ Admin account ready')
   }
 }
 
-export default db
+export default sql

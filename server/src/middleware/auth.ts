@@ -1,6 +1,6 @@
 import { Request, Response, NextFunction } from 'express'
 import { verifyAccessToken, TokenPayload } from '../utils/jwt.js'
-import db from '../db/index.js'
+import sql from '../db/index.js'
 
 declare global {
   namespace Express {
@@ -42,20 +42,25 @@ export function optionalAuth(req: Request, _res: Response, next: NextFunction): 
 
 export function requireRole(...roles: string[]) {
   return (req: Request, res: Response, next: NextFunction): void => {
-    authMiddleware(req, res, () => {
-      const role = req.user?.role
-      // Backward compat: old tokens without role — query DB
-      if (!role && req.user) {
-        const user = db.prepare('SELECT role FROM users WHERE id = ?').get(req.user.userId) as any
-        if (user) {
-          req.user.role = user.role
+    authMiddleware(req, res, async () => {
+      try {
+        const role = req.user?.role
+        // Backward compat: old tokens without role — query DB
+        if (!role && req.user) {
+          const user = (await sql`SELECT role FROM users WHERE id = ${req.user.userId}`)[0] as any
+          if (user) {
+            req.user.role = user.role
+          }
         }
+        if (!req.user?.role || !roles.includes(req.user.role)) {
+          res.status(403).json({ error: '无权限访问' })
+          return
+        }
+        next()
+      } catch (err) {
+        console.error('requireRole error:', err)
+        res.status(500).json({ error: '服务器内部错误' })
       }
-      if (!req.user?.role || !roles.includes(req.user.role)) {
-        res.status(403).json({ error: '无权限访问' })
-        return
-      }
-      next()
     })
   }
 }
