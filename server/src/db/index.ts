@@ -65,6 +65,29 @@ await sql`
     updated_at TIMESTAMPTZ DEFAULT now()
   )
 `
+
+// User feedback table
+await sql`
+  CREATE TABLE IF NOT EXISTS feedback (
+    id SERIAL PRIMARY KEY,
+    user_id INTEGER NOT NULL REFERENCES users(id),
+    reading_id INTEGER REFERENCES readings(id) ON DELETE SET NULL,
+    content TEXT NOT NULL,
+    reply TEXT,
+    status TEXT DEFAULT 'open',
+    replied_at TIMESTAMPTZ,
+    user_seen_at TIMESTAMPTZ,
+    created_at TIMESTAMPTZ DEFAULT now()
+  )
+`
+// Column additions for existing tables (CREATE IF NOT EXISTS won't add columns)
+await sql`ALTER TABLE feedback ADD COLUMN IF NOT EXISTS reply TEXT`
+await sql`ALTER TABLE feedback ADD COLUMN IF NOT EXISTS replied_at TIMESTAMPTZ`
+await sql`ALTER TABLE feedback ADD COLUMN IF NOT EXISTS user_seen_at TIMESTAMPTZ`
+await sql`CREATE INDEX IF NOT EXISTS idx_feedback_status ON feedback(status)`
+await sql`CREATE INDEX IF NOT EXISTS idx_feedback_unread ON feedback(user_id) WHERE reply IS NOT NULL AND user_seen_at IS NULL`
+await sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS accepted_terms_version TEXT`
+await sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS accepted_terms_at TIMESTAMPTZ`
 // Seed default settings (preserve any admin-modified values)
 const defaultSettings: [string, string][] = [
   ['OPENCODE_BASE_URL', process.env.OPENCODE_BASE_URL || 'https://opencode.ai/zen/go/v1'],

@@ -20,6 +20,8 @@ const REFRESH_COOKIE_OPTIONS = {
   maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
 }
 
+const CURRENT_TERMS_VERSION = '1.0'
+
 // Input validators
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 const PHONE_RE = /^[\d\-+() ]{7,20}$/
@@ -31,7 +33,7 @@ function sanitize(str: string): string {
 // POST /api/auth/register
 router.post('/register', async (req: Request, res: Response) => {
   try {
-    const { email, phone, password, displayName } = req.body
+    const { email, phone, password, displayName, acceptedTerms } = req.body
 
     // Require at least one identifier + password
     if ((!email && !phone) || !password) {
@@ -69,6 +71,12 @@ router.post('/register', async (req: Request, res: Response) => {
       return
     }
 
+    // Terms-of-service consent required
+    if (acceptedTerms !== true) {
+      res.status(400).json({ error: '请先阅读并同意用户协议和隐私政策' })
+      return
+    }
+
     // Check uniqueness (unified error to prevent enumeration)
     if (email) {
       const existing = await sql`SELECT id FROM users WHERE email = ${email}`
@@ -88,7 +96,8 @@ router.post('/register', async (req: Request, res: Response) => {
     const passwordHash = await bcrypt.hash(password, 10)
     const safeDisplayName = sanitize(displayName || (email ? email.split('@')[0] : phone || ''))
     const result = await sql`
-      INSERT INTO users (email, phone, password_hash, display_name) VALUES (${email || null}, ${phone || null}, ${passwordHash}, ${safeDisplayName})
+      INSERT INTO users (email, phone, password_hash, display_name, accepted_terms_version, accepted_terms_at)
+      VALUES (${email || null}, ${phone || null}, ${passwordHash}, ${safeDisplayName}, ${CURRENT_TERMS_VERSION}, now())
       RETURNING id
     `
     const userId = result[0].id as number

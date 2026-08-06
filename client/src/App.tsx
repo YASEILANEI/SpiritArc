@@ -1,10 +1,11 @@
 import { useEffect, useRef, useState } from 'react'
-import type { Reading, LocalReading } from './types'
+import type { Reading, LocalReading, FeedbackReply } from './types'
 import { READING_PAGES, usePageRouter, type Page } from './router'
 import { clearCurrentReading, fetchReadingById, loadCurrentReading, saveCurrentReading } from './reading-store'
-import { createReading, upgradeReading } from './api'
+import { apiFetch, createReading, upgradeReading } from './api'
 import { AuthProvider, useAuth } from './contexts/AuthContext'
 import NavBar from './components/NavBar'
+import FeedbackReplyModal from './components/FeedbackReplyModal'
 import HomePage from './pages/HomePage'
 import AskPage from './pages/AskPage'
 import ShufflePage from './pages/ShufflePage'
@@ -16,6 +17,7 @@ import HistoryPage from './pages/HistoryPage'
 import AboutPage from './pages/AboutPage'
 import AboutProductPage from './pages/AboutProductPage'
 import SupportPage from './pages/SupportPage'
+import FeedbackPage from './pages/FeedbackPage'
 import LoginPage from './pages/LoginPage'
 import RegisterPage from './pages/RegisterPage'
 import ProfilePage from './pages/ProfilePage'
@@ -23,12 +25,17 @@ import AdminPage from './pages/AdminPage'
 import AdminSettingsPage from './pages/AdminSettingsPage'
 import AdminUsersPage from './pages/AdminUsersPage'
 import AdminReadingsPage from './pages/AdminReadingsPage'
+import AdminFeedbackPage from './pages/AdminFeedbackPage'
 
 function AppContent() {
   const { user, isAuthenticated, isLoading, logout } = useAuth()
   const { page, readingId, navigate } = usePageRouter()
   const [reading, setReading] = useState<Reading | LocalReading | null>(null)
   const [fromReadingResult, setFromReadingResult] = useState(false)
+  const [unreadReplies, setUnreadReplies] = useState<FeedbackReply[]>([])
+  const [unreadCount, setUnreadCount] = useState(0)
+  const [showReplyModal, setShowReplyModal] = useState(false)
+  const checkedUnreadRef = useRef(false)
   const apiDone = useRef(false)
   const drawDone = useRef(false)
   const spreadTypeRef = useRef<'single' | 'three-card'>('single')
@@ -74,10 +81,53 @@ function AppContent() {
   // Auth guard: auth-gated pages reached while logged out → login (avoids blank screen).
   useEffect(() => {
     if (isLoading) return
-    if ((page === 'profile' || page === 'ask') && !isAuthenticated) {
+    if ((page === 'profile' || page === 'ask' || page === 'feedback') && !isAuthenticated) {
       navigate('login', { replace: true })
     }
   }, [page, isLoading, isAuthenticated, navigate])
+
+  // Reset unread state and allow re-check after logout
+  useEffect(() => {
+    if (isAuthenticated) return
+    checkedUnreadRef.current = false
+    setUnreadCount(0)
+    setShowReplyModal(false)
+  }, [isAuthenticated])
+
+  // On login, check for admin replies the user hasn't seen yet and show the modal
+  useEffect(() => {
+    if (isLoading || !isAuthenticated || checkedUnreadRef.current) return
+    checkedUnreadRef.current = true
+    apiFetch('/feedback/unread')
+      .then(res => res.ok ? res.json() : null)
+      .then(data => {
+        if (data && Array.isArray(data.unread) && data.unread.length > 0) {
+          setUnreadReplies(data.unread)
+          setUnreadCount(data.unread.length)
+          setShowReplyModal(true)
+        }
+      })
+      .catch(() => {})
+  }, [isLoading, isAuthenticated])
+
+  const dismissReplyModal = () => setShowReplyModal(false)
+
+  const readAllReplies = async () => {
+    try {
+      await apiFetch('/feedback/read-all', { method: 'POST' })
+    } catch { /* ignore */ }
+    setUnreadCount(0)
+    setShowReplyModal(false)
+  }
+
+  const viewFeedbackReading = async (readingId: number) => {
+    setShowReplyModal(false)
+    const r = await fetchReadingById(String(readingId))
+    if (r) {
+      setReading(r)
+      navigate('reading-result', { readingId: String(readingId) })
+    }
+  }
 
   // Show loading screen while checking auth
   if (isLoading) {
@@ -160,7 +210,7 @@ function AppContent() {
 
   // Admin pages guard
   const isAdmin = user?.role === 'admin'
-  const adminPages: Page[] = ['admin', 'admin-settings', 'admin-users', 'admin-readings']
+  const adminPages: Page[] = ['admin', 'admin-settings', 'admin-users', 'admin-readings', 'admin-feedback']
   if (adminPages.includes(page) && !isAdmin) {
     return (
       <div className="min-h-screen flex flex-col items-center justify-center px-4 bg-mystic-bg">
@@ -173,7 +223,7 @@ function AppContent() {
   }
 
   // Pages that show the top NavBar
-  const navBarPages = new Set<Page>(['home', 'history', 'profile', 'about', 'about-product', 'support', 'result', 'reading-result'])
+  const navBarPages = new Set<Page>(['home', 'history', 'profile', 'about', 'about-product', 'support', 'feedback', 'result', 'reading-result'])
 
   const handleNavigate = (target: string) => {
     if (target === 'home') goHome()
@@ -189,6 +239,7 @@ function AppContent() {
           isAdmin={isAdmin}
           isAuthenticated={isAuthenticated}
           onLogin={() => navigate('login')}
+          unreadReplies={unreadCount}
         />
       )}
 
@@ -225,6 +276,9 @@ function AppContent() {
       )}
       {page === 'support' && (
         <SupportPage />
+      )}
+      {page === 'feedback' && (
+        <FeedbackPage onBack={() => navigate('home')} />
       )}
       {page === 'ask' && isAuthenticated && (
         <AskPage onDraw={handleDraw} onBack={() => navigate('home')} />
@@ -314,6 +368,19 @@ function AppContent() {
       )}
       {page === 'admin-readings' && (
         <AdminReadingsPage onBack={() => navigate('admin', { replace: true })} />
+      )}
+      {page === 'admin-feedback' && (
+        <AdminFeedbackPage onBack={() => navigate('admin', { replace: true })} />
+      )}
+
+      {/* Unread admin reply modal */}
+      {showReplyModal && (
+        <FeedbackReplyModal
+          replies={unreadReplies}
+          onClose={dismissReplyModal}
+          onRead={readAllReplies}
+          onViewReading={viewFeedbackReading}
+        />
       )}
     </div>
   )

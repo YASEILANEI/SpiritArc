@@ -96,9 +96,41 @@ export interface RegisterRequest {
   phone?: string
   password: string
   displayName?: string
+  acceptedTerms?: boolean
 }
 
 export interface AuthResponse {
   user: User
   accessToken: string
+}
+
+export interface Feedback {
+  id: number
+  content: string
+  status: 'open' | 'processed'
+  reply?: string | null
+  repliedAt?: string | null
+  readingId?: number | null
+  userId?: number
+  userName?: string
+  readingQuestion?: string
+  createdAt: string
+}
+
+export interface FeedbackReply {
+  id: number
+  content: string
+  reply: string
+  repliedAt: string
+  readingId?: number | null
+  readingQuestion?: string
+  createdAt: string
+}
+
+export interface ReadingOption {
+  id: number
+  seq?: number
+  question: string
+  questionType: string
+  createdAt: string
 }

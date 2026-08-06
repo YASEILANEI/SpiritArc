@@ -10,9 +10,13 @@ import readingsRouter from './routes/readings.js'
 import authRouter from './routes/auth.js'
 import adminRouter from './routes/admin.js'
 import profileRouter from './routes/profile.js'
+import feedbackRouter from './routes/feedback.js'
 
 const app = express()
 const PORT = parseInt(process.env.PORT || '3001', 10)
+
+// Trust the first hop (Render reverse proxy) so req.ip / rate limiting see client IPs
+app.set('trust proxy', 1)
 
 // Security headers
 app.use(helmet({
@@ -51,6 +55,7 @@ app.use('/api/profile', profileRouter)
 app.use('/api/admin', adminRouter)
 app.use('/api/cards', cardsRouter)
 app.use('/api/readings', readingsRouter)
+app.use('/api/feedback', feedbackRouter)
 
 // Production: serve client static files
 if (process.env.NODE_ENV === 'production') {

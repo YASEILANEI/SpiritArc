@@ -63,7 +63,7 @@ server/     Express REST API (postgres.js + TypeScript, ESM)
 
 ```
 server/src/
-  index.ts                Express app: helmet CSP, CORS, cookieParser, /health, route mount, prod static serving
+  index.ts                Express app: helmet CSP, CORS, cookieParser, trust proxy, /health, route mount, prod static serving
   db/index.ts             postgres.js client + schema creation + settings/admin seeding (runs at import)
   middleware/
     auth.ts               authMiddleware (Bearer), optionalAuth, requireRole
@@ -71,8 +71,9 @@ server/src/
     readings.ts           CRUD readings, draw cards, batch ops, AI upgrade (quota checks)
     cards.ts              GET /api/cards (list all / get by id)
     auth.ts               Register/login/refresh/logout/me
-    admin.ts              Stats, user/reading CRUD, settings (admin-only)
+    admin.ts              Stats, user/reading CRUD, settings, feedback (admin-only)
     profile.ts            Profile + subscription/quota
+    feedback.ts           User feedback submit/list/unread + rate limiting
   services/
     ai-reading.ts         AI reading via OpenAI-compatible API (deepseek-v4-flash)
     template-reading.ts   Fallback template reading from card interpretation data
@@ -85,11 +86,13 @@ server/src/
 
 `db/index.ts` exports the `sql` tagged-template client (`postgres(url, { ssl: 'require' })`) and **creates the schema on startup with `CREATE TABLE IF NOT EXISTS`** — there is no migration framework. All queries in routes/services are async tagged templates (`await sql\`SELECT ...\``); transactions use `sql.begin(tx => ...)`; array params use `sql(ids)`.
 
-**`users`**: id (SERIAL PK), email (TEXT UNIQUE, nullable), phone (TEXT UNIQUE, nullable), password_hash, display_name, avatar_url, auth_provider (default `'local'`), auth_provider_id, role (`free`|`premium`|`admin`), created_at (TIMESTAMPTZ), updated_at
+**`users`**: id (SERIAL PK), email (TEXT UNIQUE, nullable), phone (TEXT UNIQUE, nullable), password_hash, display_name, avatar_url, auth_provider (default `'local'`), auth_provider_id, role (`free`|`premium`|`admin`), accepted_terms_version, accepted_terms_at, created_at (TIMESTAMPTZ), updated_at
 
 **`refresh_tokens`**: id, user_id (FK), token (TEXT UNIQUE), expires_at (TIMESTAMPTZ), created_at
 
-**`readings`**: id, question_type, question, cards (TEXT JSON), spread_type, reading_result, reading_source (`template`|`ai`), user_id (FK), is_public (SMALLINT 1/0), created_at, deleted_at (soft delete), hidden_at. Indexes on user_id, created_at, reading_source. No FK ON DELETE CASCADE — hard-deleting a user manually deletes their tokens + readings first (see admin route).
+**`readings`**: id, question_type, question, cards (TEXT JSON), spread_type, reading_result, reading_source (`template`|`ai`), user_id (FK), is_public (SMALLINT 1/0), created_at, deleted_at (soft delete), hidden_at. Indexes on user_id, created_at, reading_source. No FK ON DELETE CASCADE — hard-deleting a user manually deletes their tokens + readings + feedback first (see admin route).
+
+**`feedback`**: id, user_id (FK NOT NULL), reading_id (FK, `ON DELETE SET NULL`), content (TEXT), reply (TEXT), status (`open`|`processed`), replied_at, user_seen_at, created_at. Partial index on `(user_id) WHERE reply IS NOT NULL AND user_seen_at IS NULL` powers the unread-reply check. Admin hard-delete of a user deletes their feedback rows explicitly.
 
 **`settings`** (key-value): key (PK), value, updated_at. Startup-seeded with `ON CONFLICT DO NOTHING` so admin edits persist. Stored keys: OPENCODE_BASE_URL, AI_MODEL (`deepseek-v4-flash`), AI_MAX_TOKENS (`4000`). **OPENCODE_API_KEY is intentionally not stored in the DB** — `ai-reading.ts` reads it from `process.env` only; the admin settings route filters it out and the admin UI has no field for it.
 
@@ -98,8 +101,11 @@ Startup also deletes expired refresh tokens and idempotently seeds/upgrades the 
 ### Key Server Behaviors
 
 - **Auth middleware**: `authMiddleware` verifies Bearer token into `req.user`. `requireRole(...roles)` wraps auth and, for tokens issued before the `role` claim existed, falls back to querying the user's current role from the DB.
+- **Registration**: `POST /api/auth/register` requires `acceptedTerms === true` and enforces password strength (≥8 chars, ≥1 uppercase, ≥1 digit) server-side. Stores `accepted_terms_version`/`accepted_terms_at` on the user. The `users` table columns are added via `ALTER TABLE ... IF NOT EXISTS` at startup (same pattern as the feedback columns).
+- **Feedback**: `POST /api/feedback` (auth) is rate-limited per **user** via `keyGenerator: req.user.userId` (10/15min) — not per IP, because `index.ts` sets `trust proxy: 1` for Render. Associating a reading validates ownership + `deleted_at IS NULL`. `GET /api/feedback/unread` returns replies with `reply IS NOT NULL AND user_seen_at IS NULL`; `POST /api/feedback/read-all` marks them seen. Reverting a feedback to `open` in the admin route clears `reply`/`replied_at` so old replies can't re-surface as unread.
 - **Readings creation**: `POST /api/readings` requires auth. Draws via Fisher-Yates on the 78 cards, stores only the drawn metadata (cardId/position/spreadPosition) as JSON in `cards`, and always uses `templateReading()` at creation. The AI upgrade endpoint reconstructs full card objects from that JSON before calling `aiReading()`.
-- **Numeric `:id` validation**: `router.param('id')` in readings.ts rejects non-numeric ids with 400 — a bare `Number('abc')` → `NaN` would otherwise propagate into the SQL params and 500.
+- **`GET /api/readings/options`**: lightweight list (id/question/seq) of the caller's own non-deleted readings for the feedback association dropdown. Must stay registered before `GET /:id` so `/options` isn't swallowed by the id param.
+- **Numeric `:id` validation**: `router.param('id')` in readings.ts and admin.ts rejects non-numeric ids with 400 — a bare `Number('abc')` → `NaN` would otherwise propagate into the SQL params and 500.
 - **AI reading**: `aiReading()` builds a Chinese prompt, calls `{OPENCODE_BASE_URL}/chat/completions` (30s timeout), strips markdown italics/lists but keeps `### ` headers, and returns `null` on any failure (route responds 502). Settings are read DB-first with env fallback, except the API key.
 - **Production mode** (`NODE_ENV=production`): serves `client/dist` statically and falls back to `index.html` for non-`/api` GETs (Express 5 middleware, not a wildcard route). Requires `CORS_ORIGIN`.
 - **Quota**: free = 3 AI readings/week, premium = 100/month, admin unlimited — enforced via `COUNT(*)::int` queries filtered by `reading_source = 'ai'` and a date window.
@@ -110,8 +116,8 @@ Startup also deletes expired refresh tokens and idempotently seeds/upgrades the 
 ```
 client/src/
   contexts/AuthContext.tsx       Auth state, JWT management, session auto-restore
-  components/                    NavBar, BackButton, PageContainer
-  pages/                         Page components (analyzing rendered inline in App.tsx)
+  components/                    NavBar (dropdown), BackButton, PageContainer, FeedbackReplyModal, LegalModal
+  pages/                         Page components (analyzing rendered inline in App.tsx); FeedbackPage, AdminFeedbackPage
   router.ts                      usePageRouter: URL-driven routing via history API (parsePath/buildPath)
   reading-store.ts               Current-reading persistence + restore (sessionStorage → API fallback)
   api.ts                         apiFetch wrapper + offline localStorage fallback
@@ -125,7 +131,7 @@ client/src/
 
 ### Page Routing
 
-App.tsx uses `usePageRouter()` from `router.ts` (history API + `pushState`, no React Router) instead of a `useState<Page>` state machine. The URL drives which page renders; browser back/forward works via a `popstate` listener. Static pages map 1:1 to paths (`/`, `/ask`, `/history`, `/login`, `/profile`, `/about`, `/about-product`, `/support`, `/admin`, `/admin/settings`, `/admin/users`, `/admin/readings`); result pages carry the id in the URL (`/result/:id`, `/reading-result/:id`).
+App.tsx uses `usePageRouter()` from `router.ts` (history API + `pushState`, no React Router) instead of a `useState<Page>` state machine. The URL drives which page renders; browser back/forward works via a `popstate` listener. Static pages map 1:1 to paths (`/`, `/ask`, `/history`, `/login`, `/profile`, `/about`, `/about-product`, `/support`, `/feedback`, `/admin`, `/admin/settings`, `/admin/users`, `/admin/readings`, `/admin/feedback`); result pages carry the id in the URL (`/result/:id`, `/reading-result/:id`).
 
 ```
 reading flow:  home → ask → shuffle → cut → draw → analyzing → result → reading-result
@@ -134,16 +140,17 @@ reading flow:  home → ask → shuffle → cut → draw → analyzing → resul
                |
                +--- login → register (auth flow)
                |
-               +--- profile, about, about-product, support
+               +--- profile, feedback, about, about-product, support
 
-admin pages:   admin, admin-settings, admin-users, admin-readings
+admin pages:   admin, admin-settings, admin-users, admin-readings, admin-feedback
 ```
 
 Key behaviors:
 - `handleStart()` routes to `login` if unauthenticated, otherwise `ask`
 - Flow pages (`shuffle`/`cut`/`draw`/`analyzing`) navigate with `replace: true` so they never enter history; direct URL entry to one normalizes back to `/` because flow state is lost
 - `result`/`reading-result` survive refresh: App restores the reading via `reading-store.ts` (sessionStorage first, then `fetchReadingById` → API for server ids / localStorage for `local_` ids); an unrecoverable id normalizes to home
-- NavBar rendered only on `{home, history, profile, about, about-product, support, result, reading-result}`; reading flow pages intentionally hide it for immersion
+- NavBar rendered only on `{home, history, profile, feedback, about, about-product, support, result, reading-result}`; reading flow pages intentionally hide it for immersion
+- On login App fetches `/feedback/unread` once and shows a `FeedbackReplyModal` if the admin has replied; the red NavBar badge on 意见反馈 stays until the user explicitly reads all. Viewing a reply's linked reading does **not** auto-mark-read.
 - Admin pages show "unauthorized" unless `user.role === 'admin'`
 - Unauthenticated users can still create offline readings (localStorage fallback); after login `migrateLocalReadings()` pushes them via `POST /api/readings/batch-sync`
 
@@ -152,6 +159,7 @@ Key behaviors:
 - **Dual-token JWT**: access token (15min, Bearer header) + refresh token (7d, httpOnly cookie `refreshToken`, path `/api/auth`, secure in prod). Cookies require `credentials: 'include'` on every fetch.
 - **Token rotation**: on refresh, the old refresh token is deleted from DB and a new one issued.
 - **`AuthContext`**: manages `{user, accessToken, isAuthenticated, isLoading}`; auto-restores session on mount via `POST /api/auth/refresh`.
+- **Terms of service**: registration requires an `acceptedTerms` flag (client shows a `LegalModal` with 用户协议/隐私政策 before the checkbox can be checked). Enforced server-side; there is no re-consent flow for existing users yet.
 
 ### AI Settings Flow
 
@@ -188,6 +196,7 @@ All routes under `/api/admin`, require `role === 'admin'`:
 - `GET /api/admin/stats` — total users, readings, today's readings, active users, AI vs template counts
 - `GET /api/admin/users` (paginated + search) | `GET|PUT|DELETE /api/admin/users/:id` (role change, hard delete)
 - `GET|DELETE /api/admin/readings[/:id]` — all readings including deleted/hidden, hard delete
+- `GET /api/admin/feedback` (paginated + status filter) | `PUT /:id/reply` | `PUT /:id/status` (revert to open clears reply) | `DELETE /:id`
 - `GET|PUT /api/admin/settings` — AI config (OPENCODE_BASE_URL, AI_MODEL, AI_MAX_TOKENS; API key is env-only)
 
 ### Batch Operations

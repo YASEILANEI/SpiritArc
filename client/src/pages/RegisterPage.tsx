@@ -1,6 +1,14 @@
 import { useState } from 'react'
 import { useAuth } from '../contexts/AuthContext'
 import { migrateLocalReadings } from '../api'
+import LegalModal from '../components/LegalModal'
+
+const PASSWORD_REQUIREMENTS = [
+  { test: (p: string) => p.length >= 8, label: '至少 8 个字符' },
+  { test: (p: string) => p.length <= 128, label: '不超过 128 个字符' },
+  { test: (p: string) => /[A-Z]/.test(p), label: '包含一个大写字母' },
+  { test: (p: string) => /[0-9]/.test(p), label: '包含一个数字' },
+]
 
 interface Props {
   onSwitchToLogin: () => void
@@ -15,6 +23,8 @@ export default function RegisterPage({ onSwitchToLogin, onSuccess }: Props) {
   const [displayName, setDisplayName] = useState('')
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
+  const [accepted, setAccepted] = useState(false)
+  const [openDoc, setOpenDoc] = useState<'terms' | 'privacy' | null>(null)
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -23,13 +33,29 @@ export default function RegisterPage({ onSwitchToLogin, onSuccess }: Props) {
       setError('邮箱和手机号至少填一个')
       return
     }
-    if (password.length < 6) {
-      setError('密码至少需要6个字符')
+    if (password.length < 8) {
+      setError('密码至少需要 8 个字符')
+      return
+    }
+    if (password.length > 128) {
+      setError('密码不能超过 128 个字符')
+      return
+    }
+    if (!/[A-Z]/.test(password)) {
+      setError('密码需要至少一个大写字母')
+      return
+    }
+    if (!/[0-9]/.test(password)) {
+      setError('密码需要至少一个数字')
+      return
+    }
+    if (!accepted) {
+      setError('请先阅读并同意用户协议和隐私政策')
       return
     }
     setLoading(true)
     try {
-      await register(email || undefined, phone || undefined, password, displayName || undefined)
+      await register(email || undefined, phone || undefined, password, displayName || undefined, accepted)
       await migrateLocalReadings()
       onSuccess()
     } catch (err: any) {
@@ -102,17 +128,52 @@ export default function RegisterPage({ onSwitchToLogin, onSuccess }: Props) {
               type="password"
               value={password}
               onChange={e => setPassword(e.target.value)}
-              placeholder="至少6个字符"
+              placeholder="请输入密码"
               required
-              minLength={6}
+              minLength={8}
+              maxLength={128}
               className="w-full px-4 py-3 bg-mystic-card border border-mystic-gold/20 rounded-lg
                 text-mystic-text placeholder:text-mystic-text/30
                 focus:outline-none focus:border-mystic-gold/50 transition-colors"
             />
+            <ul className="mt-2 space-y-1">
+              {PASSWORD_REQUIREMENTS.map(req => {
+                const passed = req.test(password)
+                return (
+                  <li
+                    key={req.label}
+                    className={`text-xs flex items-center gap-1.5 transition-colors ${
+                      passed ? 'text-emerald-400' : 'text-mystic-text/40'
+                    }`}
+                  >
+                    <span>{passed ? '✓' : '○'}</span>
+                    {req.label}
+                  </li>
+                )
+              })}
+            </ul>
           </div>
+          <label className="flex items-start gap-2 text-sm text-mystic-text/60 cursor-pointer select-none">
+            <input
+              type="checkbox"
+              checked={accepted}
+              onChange={e => setAccepted(e.target.checked)}
+              className="mt-0.5 accent-mystic-gold"
+            />
+            <span>
+              我已阅读并同意
+              <button type="button" onClick={() => setOpenDoc('terms')} className="text-mystic-gold hover:underline">
+                《用户协议》
+              </button>
+              和
+              <button type="button" onClick={() => setOpenDoc('privacy')} className="text-mystic-gold hover:underline">
+                《隐私政策》
+              </button>
+            </span>
+          </label>
           <button
             type="submit"
-            disabled={loading}
+            disabled={loading || !accepted}
             className="w-full py-3 bg-mystic-gold text-mystic-bg rounded-full font-serif
               hover:bg-yellow-500 transition-all duration-300 shadow-lg shadow-mystic-gold/20
               disabled:opacity-50"
@@ -131,6 +192,8 @@ export default function RegisterPage({ onSwitchToLogin, onSuccess }: Props) {
           </button>
         </p>
       </div>
+
+      {openDoc && <LegalModal doc={openDoc} onClose={() => setOpenDoc(null)} />}
     </div>
   )
 }

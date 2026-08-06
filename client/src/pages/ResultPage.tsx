@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import type { DrawnCard, Reading, LocalReading } from '../types'
 import { SPREAD_LABELS } from '../types'
 
@@ -25,6 +25,14 @@ const spreadPositionLabels: Record<string, string> = {
   future: '未来',
 }
 
+const SPIRIT_TIPS = [
+  '正在感应牌面的灵性能量…',
+  '牌灵正在梳理你的牌阵…',
+  '为你连接遥远时空的讯息…',
+  '灵性指引正在凝聚…',
+  '聆听牌灵的低语…',
+]
+
 export default function ResultPage({ reading, onBack, onHome, onShowReadingResult, onUpgradeReading, defaultFlipped }: Props) {
   const [flippedStates, setFlippedStates] = useState<boolean[]>(
     defaultFlipped
@@ -37,6 +45,17 @@ export default function ResultPage({ reading, onBack, onHome, onShowReadingResul
   const [showChoice, setShowChoice] = useState(false)
   const [modalState, setModalState] = useState<'idle' | 'upgrading' | 'error' | 'limit'>('idle')
   const [errorMsg, setErrorMsg] = useState('')
+  const [tipIndex, setTipIndex] = useState(0)
+
+  // Rotate the subtitle shown while the spirit reading is generating
+  useEffect(() => {
+    if (modalState !== 'upgrading') return
+    setTipIndex(0)
+    const timer = setInterval(() => {
+      setTipIndex(i => (i + 1) % SPIRIT_TIPS.length)
+    }, 3000)
+    return () => clearInterval(timer)
+  }, [modalState])
 
   const handleFlip = (index: number) => {
     if (flippedStates[index]) return
@@ -254,12 +273,38 @@ export default function ResultPage({ reading, onBack, onHome, onShowReadingResul
           <div className="bg-mystic-card border border-mystic-gold/30 rounded-2xl p-6 w-full max-w-sm shadow-2xl animate-fadeIn">
             <h3 className="text-mystic-gold font-serif text-xl text-center mb-6">选择解读方式</h3>
 
+            {/* Spirit (AI) option — recommended */}
+            <button
+              onClick={handleSpiritChoice}
+              disabled={modalState === 'upgrading'}
+              className="w-full text-left bg-mystic-bg/60 rounded-xl p-4 border-2 border-mystic-gold/50
+                hover:border-mystic-gold/80 transition-all mb-3 shadow-lg shadow-mystic-gold/10 disabled:opacity-50"
+            >
+              <div className="flex items-center gap-3">
+                <span className="text-2xl">✨</span>
+                <div className="flex-1">
+                  <div className="flex items-center gap-2">
+                    <span className="text-mystic-gold font-serif">牌灵解读</span>
+                    <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-mystic-gold text-mystic-bg font-medium">
+                      推荐
+                    </span>
+                  </div>
+                  <div className="text-mystic-text/40 text-xs mt-0.5">
+                    灵性启迪 · 深度个性化解读
+                    {!isLocal && (
+                      <div className="text-mystic-text/30 mt-0.5">免费用户每周 3 次</div>
+                    )}
+                  </div>
+                </div>
+              </div>
+            </button>
+
             {/* Template option */}
             <button
               onClick={handleTemplateChoice}
               disabled={modalState === 'upgrading'}
               className="w-full text-left bg-mystic-bg/60 rounded-xl p-4 border border-mystic-gold/20
-                hover:border-mystic-gold/40 transition-all mb-3 disabled:opacity-50"
+                hover:border-mystic-gold/40 transition-all mb-4 disabled:opacity-50"
             >
               <div className="flex items-center gap-3">
                 <span className="text-2xl">📖</span>
@@ -270,32 +315,13 @@ export default function ResultPage({ reading, onBack, onHome, onShowReadingResul
               </div>
             </button>
 
-            {/* Spirit (AI) option */}
-            <button
-              onClick={handleSpiritChoice}
-              disabled={modalState === 'upgrading'}
-              className="w-full text-left bg-mystic-bg/60 rounded-xl p-4 border border-mystic-gold/20
-                hover:border-mystic-gold/40 transition-all mb-4 disabled:opacity-50"
-            >
-              <div className="flex items-center gap-3">
-                <span className="text-2xl">✨</span>
-                <div>
-                  <div className="text-mystic-gold font-serif">牌灵解读</div>
-                  <div className="text-mystic-text/40 text-xs mt-0.5">
-                    灵性启迪 · 深度个性化解读
-                    {!isLocal && (
-                      <span className="text-mystic-text/30 ml-1">（免费用户每周 3 次）</span>
-                    )}
-                  </div>
-                </div>
-              </div>
-            </button>
-
             {/* Modal states */}
             {modalState === 'upgrading' && (
-              <div className="flex items-center gap-2 text-mystic-text/60 text-sm justify-center mb-2">
-                <div className="w-4 h-4 border-2 border-mystic-gold/30 border-t-mystic-gold rounded-full animate-spin" />
-                牌灵正在生成解读...
+              <div className="flex items-center gap-2 justify-center mb-2">
+                <div className="w-4 h-4 border-2 border-mystic-gold/30 border-t-mystic-gold rounded-full animate-spin shrink-0" />
+                <span key={tipIndex} className="text-mystic-text/50 text-sm animate-fadeIn">
+                  {SPIRIT_TIPS[tipIndex]}
+                </span>
               </div>
             )}
             {modalState === 'error' && (

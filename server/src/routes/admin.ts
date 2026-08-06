@@ -7,6 +7,15 @@ const router = Router()
 // All admin routes require admin role
 router.use(requireRole('admin'))
 
+// Non-numeric :id would become NaN in the SQL params below and 500 — reject early.
+router.param('id', (req, res, next, id) => {
+  if (!Number.isInteger(Number(id))) {
+    res.status(400).json({ error: 'Invalid id' })
+    return
+  }
+  next()
+})
+
 // GET /api/admin/stats — total counts (including soft-deleted)
 router.get('/stats', async (_req: Request, res: Response) => {
   const totalUsers = (await sql`SELECT COUNT(*)::int as count FROM users`)[0].count
@@ -125,6 +134,7 @@ router.delete('/users/:id', async (req: Request, res: Response) => {
 
   await sql`DELETE FROM refresh_tokens WHERE user_id = ${targetId}`
   await sql`DELETE FROM readings WHERE user_id = ${targetId}`
+  await sql`DELETE FROM feedback WHERE user_id = ${targetId}`
   await sql`DELETE FROM users WHERE id = ${targetId}`
   res.json({ ok: true })
 })
@@ -184,6 +194,95 @@ router.get('/readings/:id', async (req: Request, res: Response) => {
     return
   }
   res.json({ readingResult: reading.reading_result || '' })
+})
+
+// GET /api/admin/feedback
+router.get('/feedback', async (req: Request, res: Response) => {
+  const page = Math.max(1, parseInt(req.query.page as string) || 1)
+  const limit = Math.min(100, Math.max(1, parseInt(req.query.limit as string) || 20))
+  const offset = (page - 1) * limit
+
+  const status = (req.query.status as string) || ''
+  const statusCond = ['open', 'processed'].includes(status) ? sql`WHERE f.status = ${status}` : sql``
+
+  const total = (await sql`SELECT COUNT(*)::int as count FROM feedback f ${statusCond}`)[0].count
+  const rows = await sql`
+    SELECT f.id, f.content, f.status, f.reply, f.replied_at, f.created_at, f.reading_id, f.user_id, u.display_name, r.question
+    FROM feedback f
+    LEFT JOIN users u ON f.user_id = u.id
+    LEFT JOIN readings r ON f.reading_id = r.id
+    ${statusCond}
+    ORDER BY (f.status = 'open') DESC, f.created_at DESC
+    LIMIT ${limit} OFFSET ${offset}
+  `
+
+  res.json({
+    feedback: rows.map((f: any) => ({
+      id: f.id,
+      content: f.content,
+      status: f.status,
+      reply: f.reply,
+      repliedAt: f.replied_at,
+      userId: f.user_id,
+      userName: f.display_name || `用户 #${f.user_id}`,
+      readingId: f.reading_id,
+      readingQuestion: f.question,
+      createdAt: f.created_at,
+    })),
+    pagination: { page, limit, total, totalPages: Math.ceil(total / limit) },
+  })
+})
+
+// PUT /api/admin/feedback/:id/reply — write an admin reply and mark processed
+router.put('/feedback/:id/reply', async (req: Request, res: Response) => {
+  const reply = (req.body.reply || '').trim()
+  if (!reply) {
+    res.status(400).json({ error: '回复内容不能为空' })
+    return
+  }
+  if (reply.length > 2000) {
+    res.status(400).json({ error: '回复内容不能超过 2000 字' })
+    return
+  }
+  const existing = (await sql`SELECT id FROM feedback WHERE id = ${Number(req.params.id)}`)[0]
+  if (!existing) {
+    res.status(404).json({ error: '反馈不存在' })
+    return
+  }
+  await sql`
+    UPDATE feedback SET reply = ${reply}, replied_at = now(), status = 'processed' WHERE id = ${Number(req.params.id)}
+  `
+  res.json({ ok: true })
+})
+
+// PUT /api/admin/feedback/:id/status
+router.put('/feedback/:id/status', async (req: Request, res: Response) => {
+  const { status } = req.body
+  if (!['open', 'processed'].includes(status)) {
+    res.status(400).json({ error: '无效的状态' })
+    return
+  }
+  const existing = (await sql`SELECT id FROM feedback WHERE id = ${Number(req.params.id)}`)[0]
+  if (!existing) {
+    res.status(404).json({ error: '反馈不存在' })
+    return
+  }
+  // Reverting to open also clears any prior reply so the unread query
+  // (reply IS NOT NULL AND user_seen_at IS NULL) can't re-surface old replies
+  await sql`
+    UPDATE feedback
+    SET status = ${status},
+        reply = ${status === 'open' ? null : sql`reply`},
+        replied_at = ${status === 'open' ? null : sql`replied_at`}
+    WHERE id = ${Number(req.params.id)}
+  `
+  res.json({ ok: true })
+})
+
+// DELETE /api/admin/feedback/:id
+router.delete('/feedback/:id', async (req: Request, res: Response) => {
+  await sql`DELETE FROM feedback WHERE id = ${Number(req.params.id)}`
+  res.json({ ok: true })
 })
 
 // GET /api/admin/settings — get all settings (API key redacted for security)

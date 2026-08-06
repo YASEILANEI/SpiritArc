@@ -9,3 +9,7 @@ temp-images/
 .DS_Store
 /api/
 .claude/
+
+# Locally installed agent skills (managed per-machine, not committed)
+.agents/
+skills-lock.json

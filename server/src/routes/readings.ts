@@ -188,6 +188,25 @@ router.get('/', authMiddleware, async (req, res) => {
   res.json(readings.map(r => formatReading(r, allCards)))
 })
 
+// GET /api/readings/options — lightweight list of own non-deleted readings (incl. hidden) for feedback association
+// Must be registered before GET /:id so /options isn't swallowed by the id param route
+router.get('/options', authMiddleware, async (req, res) => {
+  const options = await sql`
+    SELECT id, question, question_type, created_at,
+      ROW_NUMBER() OVER (ORDER BY created_at ASC, id ASC)::int AS seq
+    FROM readings
+    WHERE user_id = ${req.user!.userId} AND deleted_at IS NULL
+    ORDER BY created_at DESC LIMIT 100
+  `
+  res.json(options.map((r: any) => ({
+    id: r.id,
+    seq: r.seq,
+    question: r.question,
+    questionType: r.question_type,
+    createdAt: r.created_at,
+  })))
+})
+
 // GET /api/readings/:id — get single reading
 router.get('/:id', optionalAuth, async (req, res) => {
   const reading = (await sql`SELECT * FROM readings WHERE id = ${Number(req.params.id)}`)[0] as any

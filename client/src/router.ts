@@ -2,8 +2,8 @@ import { useCallback, useEffect, useState } from 'react'
 
 export type Page = 'home' | 'ask' | 'shuffle' | 'cut' | 'draw' | 'analyzing'
   | 'result' | 'reading-result' | 'history' | 'login' | 'register' | 'profile'
-  | 'about' | 'about-product' | 'support'
-  | 'admin' | 'admin-settings' | 'admin-users' | 'admin-readings'
+  | 'about' | 'about-product' | 'support' | 'feedback'
+  | 'admin' | 'admin-settings' | 'admin-users' | 'admin-readings' | 'admin-feedback'
 
 export interface RouteParams {
   page: Page
@@ -24,10 +24,12 @@ const STATIC_PATHS: Record<string, Page> = {
   '/about': 'about',
   '/about-product': 'about-product',
   '/support': 'support',
+  '/feedback': 'feedback',
   '/admin': 'admin',
   '/admin/settings': 'admin-settings',
   '/admin/users': 'admin-users',
   '/admin/readings': 'admin-readings',
+  '/admin/feedback': 'admin-feedback',
 }
 
 // Flow pages are never pushed into history, so the only way to land on one is
@@ -59,6 +61,7 @@ export function buildPath(page: Page, readingId?: string | null): string {
   if (page === 'admin-settings') return '/admin/settings'
   if (page === 'admin-users') return '/admin/users'
   if (page === 'admin-readings') return '/admin/readings'
+  if (page === 'admin-feedback') return '/admin/feedback'
   if (page === 'home') return '/'
   return `/${page}`
 }

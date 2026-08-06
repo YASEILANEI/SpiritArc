@@ -58,6 +58,11 @@ export default function ReadingResultPage({ reading, onBackToResult, onHome }: P
   const isServerReading = typeof reading.id === 'number'
   const isLoading = isServerReading && !result
 
+  // Scroll to top when entering the full reading page
+  useEffect(() => {
+    window.scrollTo(0, 0)
+  }, [])
+
   // Poll for AI result when not yet available
   useEffect(() => {
     if (!isServerReading || reading.readingResult) return

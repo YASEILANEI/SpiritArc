@@ -29,39 +29,47 @@ function cleanMarkdown(text: string): string {
 function buildPrompt(questionType: string, question: string, cards: any[]): string {
   const typeLabel = typeLabels[questionType] || '综合'
   const displayQuestion = question?.trim() || `关于${typeLabel}的近期情况`
+  // 按问题类型取对应维度的牌义喂给模型，避免模型自行推断偏差（general 用核心牌义）
+  const sectionKey = questionType === 'general' ? 'coreMeaning' : questionType
 
   const cardDesc = cards.map((c, i) => {
     const pos = c.position === 'up' ? '正位' : '逆位'
     const spread = c.spreadPosition
       ? `（${spreadLabels[c.spreadPosition] || c.spreadPosition}）`
       : ''
-    return `${i + 1}. ${c.nameCn}(${c.nameEn})${spread} - ${pos}\n   关键词：${c.keywords?.join('、') || ''}\n   牌义：${c.meaning}`
+    const focused = c.interpretation?.[c.position]?.[sectionKey]
+    return `${i + 1}. ${c.nameCn}(${c.nameEn})${spread} - ${pos}
+   关键词：${c.keywords?.join('、') || ''}
+   通用牌义：${c.meaning}${focused ? `\n   针对${typeLabel}的牌义：${focused}` : ''}`
   }).join('\n\n')
 
-  return `用户就"${typeLabel}"方面提出了问题：${displayQuestion}
+  return `以下是用户在「${typeLabel}」方面提出的具体问题：
+「${displayQuestion}」
 
-抽到的牌：
+抽到的牌${cards.length === 3 ? '（按时间顺序：过去 / 现在 / 未来）' : ''}：
 ${cardDesc}
 
-请根据这些牌提供个性化的占卜解读。要求：
-1. 直接回应用户的具体问题，不要绕圈子
-2. 将每张牌的含义与用户的情况结合起来分析
-3. 使用"你"来称呼用户
-4. 每个段落都要有实质内容，不要空洞套话
+请围绕用户上面那个具体问题展开解读，而不是泛泛讲牌义。要求：
+1. 先抓住用户问题的核心——涉及的对象、情境、顾虑、期望——并在解读中逐一回应这些点；不要输出与用户问题无关的内容
+2. 说明每张牌在牌阵中的含义对用户这件事意味着什么，而不是复述牌义本身
+3. 三张牌阵要说明从过去到未来的变化趋势，并与问题的现状呼应
+4. 使用"你"称呼用户，语气真诚、有洞察力
+5. 结论要具体：宁可就用户的问题给出明确方向和判断，也不要含糊其辞的万能套话
+6. 避免空泛的人生哲理，始终把分析拉回到用户的这个问题上
 
 按以下格式输出，用###做标题。每个标题下的内容分成2到4个短段落，段落之间用空行隔开。不要使用任何列表或标记符号：
 
 ### 重点摘要
 
-[3到5行短句，提炼本次占卜的核心结论，每条一行。让不读全文的人也能掌握关键信息]
+[3到5行短句，每条一行，直接针对用户的问题给出核心结论。让不读全文的人也能掌握答案]
 
 ### 具体分析
 
-[2到4段，结合牌义展开分析]
+[2到4段，围绕用户问题展开：先点明牌与问题的关联，再结合牌义和牌阵位置分析，最后落到对用户这个具体处境意味着什么]
 
 ### 行动指引
 
-[2到3段文字建议，不要用数字列表]`
+[2到3段，针对用户这个问题的具体建议，不要泛泛说"保持平静""相信直觉"]`
 }
 
 export async function aiReading(
@@ -99,7 +107,7 @@ export async function aiReading(
         messages: [
           {
             role: 'system',
-            content: '你是一位专业的塔罗牌占卜师。用中文回应用户的占卜问题。解读要具体、有洞察力、富有同理心。直接回应用户的具体问题，给出有实质内容的分析，不要写空洞的套话。\n\n格式要求：\n- 开头必须先写"### 重点摘要"，用3到5条短句提炼核心结论\n- 每条摘要直接写结论，不要用"总结来说""总之"这类开头\n- 不要使用任何 markdown 格式（不要用**、*、`、数字列表）\n- 每个段落之间用空行分隔\n- 只使用 ### 作为段落标题标记',
+            content: '你是一位专业的塔罗牌占卜师。你的任务是围绕用户提出的具体问题，结合所抽的牌，给出有针对性的解读。\n\n必须遵守：\n1. 一切分析都要紧扣用户的问题。用户问什么就答什么，解读必须能回答用户的问题，不要说与问题无关的内容。\n2. 抽到的牌是用来回答问题的素材，不是复述的对象。你要说明"这张牌出现在这里，对用户这件事意味着什么"。\n3. 具体、直接、有洞察力。宁可给出明确的方向和判断，也不要模棱两可或万金油套话。\n4. 用户问题里提到的对象、情境、时间、顾虑要逐一回应；问题越具体，解读就要越具体。\n5. 用"你"称呼用户，语气真诚而有同理心。\n\n格式要求：\n- 开头必须先写"### 重点摘要"，用3到5条短句提炼核心结论\n- 每条摘要直接写结论，不要用"总结来说""总之"这类开头\n- 不要使用任何 markdown 格式（不要用**、*、`、数字列表）\n- 每个段落之间用空行分隔\n- 只使用 ### 作为段落标题标记',
           },
           {
             role: 'user',

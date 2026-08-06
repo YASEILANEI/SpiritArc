@@ -97,6 +97,18 @@ export default function AdminPage({ onNavigate, onBack }: Props) {
           </button>
 
           <button
+            onClick={() => onNavigate('feedback')}
+            className="w-full text-left bg-mystic-card/80 rounded-xl p-4 border border-mystic-gold/20
+              hover:border-mystic-gold/40 transition-all flex items-center gap-3"
+          >
+            <span className="text-xl">✉</span>
+            <div>
+              <div className="text-mystic-gold font-serif text-sm">反馈管理</div>
+              <div className="text-mystic-text/40 text-xs mt-0.5">查看和处理用户反馈</div>
+            </div>
+          </button>
+
+          <button
             onClick={() => onNavigate('settings')}
             className="w-full text-left bg-mystic-card/80 rounded-xl p-4 border border-mystic-gold/20
               hover:border-mystic-gold/40 transition-all flex items-center gap-3"
