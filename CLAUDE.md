@@ -5,112 +5,127 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## Commands
 
 ```bash
+# Root — orchestrates both packages
+npm run build  # client build → server build (both with --include=dev)
+npm run start  # node server/dist/index.js
+npm run dev    # server dev only
+
 # Client (React + Vite)
-cd client && npm run dev     # dev server on :5173
-cd client && npm run build   # tsc + production build
+cd client && npm run dev     # dev server on :5173 (proxies /api → :3001)
+cd client && npm run build   # tsc + vite build → client/dist
 cd client && npm run preview # preview production build
 
-# Server (Express + SQLite)
+# Server (Express + Neon Postgres)
 cd server && npm run dev     # dev with tsx watch on :3001
-cd server && npm run build   # tsc
-cd server && npm start       # run compiled JS
+cd server && npm run build   # tsc + copies src/data/cards.json → dist/data
+cd server && npm start       # node dist/index.js (serves client/dist in prod)
 ```
 
-Both must run simultaneously in dev. Vite proxies `/api` to `localhost:3001`.
+Both must run simultaneously in dev. Vite proxies `/api` to `localhost:3001`. There is no test suite and no linter configured.
 
 ## Environment Variables
 
-Create `server/.env` (optional in dev, all vars have safe defaults):
+Create `server/.env` and copy `server/.env.example`. **`DATABASE_URL`, `JWT_SECRET`, `JWT_REFRESH_SECRET` are required — the server throws at startup if any is missing** (no safe defaults). The DB is remote (Neon), so there is no local-dev fallback.
 
 ```bash
-# JWT secrets (required in production)
-JWT_SECRET=your-access-secret
-JWT_REFRESH_SECRET=your-refresh-secret
+# Neon Postgres connection (required). Dev uses the dev branch, prod uses main.
+DATABASE_URL=postgresql://user:pass@ep-xxx-pooler.us-east-2.aws.neon.tech/spiritarc
+PG_SCHEMA=public
 
-# Admin auto-seed on first run
+# JWT secrets (required, generate with: openssl rand -base64 48)
+JWT_SECRET=...
+JWT_REFRESH_SECRET=...
+
+# Admin auto-seed on first run (idempotent; upgrades existing user to admin)
 ADMIN_EMAIL=admin@example.com
 ADMIN_PASSWORD=admin123
 
-# AI reading API (also configurable via admin panel > settings)
+# AI reading API — API key is env-only, NOT stored in the DB
 OPENCODE_API_KEY=sk-xxx
 OPENCODE_BASE_URL=https://opencode.ai/zen/go/v1
 
-# Production
-NODE_ENV=production
-CLIENT_URL=https://your-domain.com
+# Runtime
+NODE_ENV=development   # 'production' enables static client serving + secure cookies
+PORT=3001
+CORS_ORIGIN=http://localhost:5173   # REQUIRED in production or server throws; comma-separated allowed origins
 ```
 
 ## Architecture
 
-Monorepo with two packages:
+Monorepo with two packages. The server is **ESM** (`"type": "module"`) — all relative imports use explicit `.js` extensions and new files must use ESM syntax.
 
 ```
-client/     React SPA (Vite + TailwindCSS + TypeScript)
-server/     Express REST API (better-sqlite3 + TypeScript)
-```
-
-### Client Structure
-
-```
-client/src/
-  contexts/
-    AuthContext.tsx       Auth state, JWT management, session auto-restore
-  components/
-    NavBar.tsx            Top navigation bar (brand, nav links, auth toggle)
-    BackButton.tsx        Reusable back navigation
-    PageContainer.tsx     Layout wrapper (centered, max-w-lg)
-  pages/
-    HomePage.tsx          Landing page with start/history buttons
-    AskPage.tsx           Question type, spread type, free-text input
-    ShufflePage.tsx       Shuffle animation with cycling card names (1.5s)
-    CutPage.tsx           Cut animation with interaction (1.2s)
-    DrawPage.tsx          Tap to select cards from 78-card grid
-    ResultPage.tsx        Flip-to-reveal cards, template/AI choice modal
-    ReadingResultPage.tsx Parsed markdown reading display, polls if AI pending
-    HistoryPage.tsx       Paginated reading list, batch hide/delete
-    LoginPage.tsx         Email/phone + password login
-    RegisterPage.tsx      Registration form
-    ProfilePage.tsx       Display name, subscription info, logout
-    AboutPage.tsx         Personal intro of the developer
-    AboutProductPage.tsx  Product info (origin, philosophy, features, credits)
-    SupportPage.tsx       Donation page with expandable WeChat/Alipay QR codes
-    AdminPage.tsx         Dashboard with stats + module links
-    AdminSettingsPage.tsx AI model/key config
-    AdminUsersPage.tsx    User management table
-    AdminReadingsPage.tsx All-readings table
-  api.ts                  Server API client + offline localStorage fallback
-  api/auth.ts             Refresh and logout endpoints
-  types.ts                TarotCard, DrawnCard, Reading, LocalReading, User, etc.
-  utils/
-    reading-generator.ts  Client-side template reading generator (offline fallback)
-  data/                   Static 78-card JSON (identical copy on server)
+client/     React SPA (Vite + TailwindCSS + TypeScript, CommonJS)
+server/     Express REST API (postgres.js + TypeScript, ESM)
 ```
 
 ### Server Structure
 
 ```
 server/src/
-  index.ts                Express app, CORS, JSON body parser, port 3001
-  db/index.ts             SQLite init, schema migrations, admin seeding
+  index.ts                Express app: helmet CSP, CORS, cookieParser, /health, route mount, prod static serving
+  db/index.ts             postgres.js client + schema creation + settings/admin seeding (runs at import)
   middleware/
-    auth.ts               JWT verification + role-based authorization
+    auth.ts               authMiddleware (Bearer), optionalAuth, requireRole
   routes/
-    readings.ts           CRUD readings, draw cards, batch ops, AI upgrade
+    readings.ts           CRUD readings, draw cards, batch ops, AI upgrade (quota checks)
     cards.ts              GET /api/cards (list all / get by id)
     auth.ts               Register/login/refresh/logout/me
     admin.ts              Stats, user/reading CRUD, settings (admin-only)
-    profile.ts            User profile + subscription/quota
+    profile.ts            Profile + subscription/quota
   services/
     ai-reading.ts         AI reading via OpenAI-compatible API (deepseek-v4-flash)
     template-reading.ts   Fallback template reading from card interpretation data
   utils/
     jwt.ts                Access token (15min) + refresh token (7d) helpers
-  data/                   cards.json + tarot.db (SQLite, auto-created)
+  data/                   cards.json (read via fs at module load in cards.ts & readings.ts)
 ```
 
-### Page State Machine
+### Database (Neon Postgres via `postgres.js`)
 
-App.tsx uses `useState<Page>` (no React Router) with 19 states. The `analyzing` page is rendered inline in App.tsx (spinner, no separate page component). `login` and `register` are actual page components.
+`db/index.ts` exports the `sql` tagged-template client (`postgres(url, { ssl: 'require' })`) and **creates the schema on startup with `CREATE TABLE IF NOT EXISTS`** — there is no migration framework. All queries in routes/services are async tagged templates (`await sql\`SELECT ...\``); transactions use `sql.begin(tx => ...)`; array params use `sql(ids)`.
+
+**`users`**: id (SERIAL PK), email (TEXT UNIQUE, nullable), phone (TEXT UNIQUE, nullable), password_hash, display_name, avatar_url, auth_provider (default `'local'`), auth_provider_id, role (`free`|`premium`|`admin`), created_at (TIMESTAMPTZ), updated_at
+
+**`refresh_tokens`**: id, user_id (FK), token (TEXT UNIQUE), expires_at (TIMESTAMPTZ), created_at
+
+**`readings`**: id, question_type, question, cards (TEXT JSON), spread_type, reading_result, reading_source (`template`|`ai`), user_id (FK), is_public (SMALLINT 1/0), created_at, deleted_at (soft delete), hidden_at. Indexes on user_id, created_at, reading_source. No FK ON DELETE CASCADE — hard-deleting a user manually deletes their tokens + readings first (see admin route).
+
+**`settings`** (key-value): key (PK), value, updated_at. Startup-seeded with `ON CONFLICT DO NOTHING` so admin edits persist. Stored keys: OPENCODE_BASE_URL, AI_MODEL (`deepseek-v4-flash`), AI_MAX_TOKENS (`4000`). **OPENCODE_API_KEY is intentionally not stored in the DB** — `ai-reading.ts` reads it from `process.env` only; the admin settings route filters it out and the admin UI has no field for it.
+
+Startup also deletes expired refresh tokens and idempotently seeds/upgrades the admin account from `ADMIN_EMAIL`/`ADMIN_PASSWORD`.
+
+### Key Server Behaviors
+
+- **Auth middleware**: `authMiddleware` verifies Bearer token into `req.user`. `requireRole(...roles)` wraps auth and, for tokens issued before the `role` claim existed, falls back to querying the user's current role from the DB.
+- **Readings creation**: `POST /api/readings` requires auth. Draws via Fisher-Yates on the 78 cards, stores only the drawn metadata (cardId/position/spreadPosition) as JSON in `cards`, and always uses `templateReading()` at creation. The AI upgrade endpoint reconstructs full card objects from that JSON before calling `aiReading()`.
+- **Numeric `:id` validation**: `router.param('id')` in readings.ts rejects non-numeric ids with 400 — a bare `Number('abc')` → `NaN` would otherwise propagate into the SQL params and 500.
+- **AI reading**: `aiReading()` builds a Chinese prompt, calls `{OPENCODE_BASE_URL}/chat/completions` (30s timeout), strips markdown italics/lists but keeps `### ` headers, and returns `null` on any failure (route responds 502). Settings are read DB-first with env fallback, except the API key.
+- **Production mode** (`NODE_ENV=production`): serves `client/dist` statically and falls back to `index.html` for non-`/api` GETs (Express 5 middleware, not a wildcard route). Requires `CORS_ORIGIN`.
+- **Quota**: free = 3 AI readings/week, premium = 100/month, admin unlimited — enforced via `COUNT(*)::int` queries filtered by `reading_source = 'ai'` and a date window.
+- **Soft delete vs hide**: `deleted_at` = user-deleted (kept for stats), `hidden_at` = user-hidden from own list; admins see everything. Hard delete only via admin API.
+
+### Client
+
+```
+client/src/
+  contexts/AuthContext.tsx       Auth state, JWT management, session auto-restore
+  components/                    NavBar, BackButton, PageContainer
+  pages/                         Page components (analyzing rendered inline in App.tsx)
+  router.ts                      usePageRouter: URL-driven routing via history API (parsePath/buildPath)
+  reading-store.ts               Current-reading persistence + restore (sessionStorage → API fallback)
+  api.ts                         apiFetch wrapper + offline localStorage fallback
+  api/auth.ts                    Refresh and logout endpoints
+  utils/reading-generator.ts     Client-side template reading generator (offline fallback)
+  data/cards.json                Static 78-card JSON (identical copy on server — keep in sync)
+  types.ts                       TarotCard, DrawnCard, Reading, LocalReading, User, etc.
+```
+
+`api.ts`'s `apiFetch()` auto-attaches the Bearer header, and on 401 acquires a mutex (`_refreshPromise`) to prevent concurrent refresh storms, retries once, then calls `_onAuthExpired`. `createReading()` falls back to localStorage **only on network errors** — a server rejection (e.g. quota exceeded) surfaces the error instead of silently creating a local reading.
+
+### Page Routing
+
+App.tsx uses `usePageRouter()` from `router.ts` (history API + `pushState`, no React Router) instead of a `useState<Page>` state machine. The URL drives which page renders; browser back/forward works via a `popstate` listener. Static pages map 1:1 to paths (`/`, `/ask`, `/history`, `/login`, `/profile`, `/about`, `/about-product`, `/support`, `/admin`, `/admin/settings`, `/admin/users`, `/admin/readings`); result pages carry the id in the URL (`/result/:id`, `/reading-result/:id`).
 
 ```
 reading flow:  home → ask → shuffle → cut → draw → analyzing → result → reading-result
@@ -126,29 +141,35 @@ admin pages:   admin, admin-settings, admin-users, admin-readings
 
 Key behaviors:
 - `handleStart()` routes to `login` if unauthenticated, otherwise `ask`
+- Flow pages (`shuffle`/`cut`/`draw`/`analyzing`) navigate with `replace: true` so they never enter history; direct URL entry to one normalizes back to `/` because flow state is lost
+- `result`/`reading-result` survive refresh: App restores the reading via `reading-store.ts` (sessionStorage first, then `fetchReadingById` → API for server ids / localStorage for `local_` ids); an unrecoverable id normalizes to home
 - NavBar rendered only on `{home, history, profile, about, about-product, support, result, reading-result}`; reading flow pages intentionally hide it for immersion
 - Admin pages show "unauthorized" unless `user.role === 'admin'`
-- Unauthenticated users can still create offline readings (localStorage fallback)
+- Unauthenticated users can still create offline readings (localStorage fallback); after login `migrateLocalReadings()` pushes them via `POST /api/readings/batch-sync`
 
 ### Auth System
 
-- **Dual-token JWT**: access token (15min, Bearer header) + refresh token (7d, httpOnly cookie, path `/api/auth`)
-- **Token rotation**: on refresh, old refresh token is deleted from DB and a new one is issued
-- **`AuthContext`**: manages `{user, accessToken, isAuthenticated, isLoading}`; auto-restores session on mount via `POST /api/auth/refresh`
-- **`apiFetch()` wrapper** in `api.ts`: auto-attaches Bearer header; on 401, acquires a mutex (`_refreshPromise`) to prevent concurrent refresh storms, retries once on success, calls `_onAuthExpired` on failure
-- Guest flow: unauthenticated users can start the app, create local readings, and later migrate readings to server via `POST /api/readings/batch-sync`
+- **Dual-token JWT**: access token (15min, Bearer header) + refresh token (7d, httpOnly cookie `refreshToken`, path `/api/auth`, secure in prod). Cookies require `credentials: 'include'` on every fetch.
+- **Token rotation**: on refresh, the old refresh token is deleted from DB and a new one issued.
+- **`AuthContext`**: manages `{user, accessToken, isAuthenticated, isLoading}`; auto-restores session on mount via `POST /api/auth/refresh`.
 
-### Database Schema (SQLite via better-sqlite3, WAL mode)
+### AI Settings Flow
 
-**`users`**: id, email (UNIQUE, nullable), phone (UNIQUE, nullable), password_hash, display_name, avatar_url, auth_provider (default `'local'`), role (`free`|`premium`|`admin`), created_at, updated_at
+Admin settings page edits OPENCODE_BASE_URL, AI_MODEL, AI_MAX_TOKENS in the DB. OPENCODE_API_KEY is configured only via `server/.env` (or Render env vars). When the AI call runs, base URL/model/max tokens resolve DB-first (falling back to env), while the API key comes strictly from env.
 
-**`refresh_tokens`**: id, user_id (FK), token (UNIQUE), expires_at, created_at
+### Data Flow
 
-**`readings`**: id, question_type, question, cards (JSON), spread_type, reading_result, reading_source (`template`|`ai`), user_id (FK), is_public, created_at, deleted_at (soft delete), hidden_at
-
-**`settings`** (key-value): key (PK), value, updated_at. Defaults: OPENCODE_API_KEY, OPENCODE_BASE_URL, AI_MODEL (`deepseek-v4-flash`), AI_MAX_TOKENS (`4000`)
-
-Migration pattern: uses `pragma_table_info` detection to gradually add columns — no migration framework.
+1. AskPage collects `{questionType, question, spreadType}`
+2. App calls `createReading()` in api.ts (fires immediately, runs in background)
+3. User progresses through ShufflePage → CutPage → DrawPage while API call is in-flight
+4. `createReading()` tries POST /api/readings:
+   - **Online**: server draws cards → templateReading() → stores in Postgres → returns Reading with template readingResult
+   - **Offline** (network error only): client draws from local cards.json → generateLocalReading() → saves to localStorage → returns LocalReading
+5. Once both `apiDone` and `drawDone` flags are true, navigate to ResultPage via `analyzing` page
+6. ResultPage shows cards one by one (click to flip → reveal interpretation)
+7. User can choose "AI 塔罗牌灵解读" (upgrade to AI) or "查看完整解读" (view template) — AI upgrade calls `POST /api/readings/:id/ai-reading`
+8. ReadingResultPage parses `### ` sections from readingResult, polls `/api/readings/:id` every 2s if result is still empty
+9. HistoryPage merges server readings + localStorage readings, supports batch hide/delete
 
 ### Key Design Decisions
 
@@ -159,35 +180,18 @@ Migration pattern: uses `pragma_table_info` detection to gradually add columns �
 - **Card interpretation**: Each card has pre-authored `interpretation.{up,down}` with sections: coreMeaning, love, career, finance, health, advice. ResultPage conditionally shows sections based on questionType.
 - **Tailwind custom theme**: `mystic-bg`, `mystic-card`, `mystic-gold`, `mystic-text`, `mystic-accent` via tailwind.config.js.
 - **Spread types**: `single` (1 card) and `three-card` (past/present/future). Draw logic: Fisher-Yates shuffle array → slice N → assign random position (up/down, 50/50).
-- **AI reading**: Server calls deepseek-v4-flash via OpenAI-compatible API (`OPENCODE_API_KEY` + `OPENCODE_BASE_URL` in .env or DB settings). Falls back to template reading if API unavailable.
-- **Reading upgrade flow**: readings are created with template text by default. User can request AI upgrade via `POST /api/readings/:id/ai-reading` — route checks quota, calls `aiReading()`, returns 502 on failure.
 - **Subscription tiers**: `free` (3 AI readings/week), `premium` (100/month), `admin` (unlimited). Quota tracked via `COUNT` queries with date range filtering in route layer.
-- **Soft delete**: readings have `deleted_at` (user-deleted) and `hidden_at` (user-hidden). Admin sees all. Hard delete only via admin API.
-
-### Data Flow
-
-1. AskPage collects `{questionType, question, spreadType}`
-2. App calls `createReading()` in api.ts (fires immediately, runs in background)
-3. User progresses through ShufflePage → CutPage → DrawPage while API call is in-flight
-4. `createReading()` tries POST /api/readings:
-   - **Online**: server draws cards → calls templateReading() → stores in SQLite → returns Reading with readingResult (template source)
-   - **Offline**: client draws from local cards.json → generateLocalReading() → saves to localStorage → returns LocalReading
-5. Once both `apiDone` and `drawDone` flags are true, navigate to ResultPage via `analyzing` page
-6. ResultPage shows cards one by one (click to flip → reveal interpretation)
-7. User can choose "AI 塔罗牌灵解读" (upgrade to AI) or "查看完整解读" (view template) — AI upgrade calls `POST /api/readings/:id/ai-reading`
-8. ReadingResultPage parses `### ` sections from readingResult, polls `/api/readings/:id` every 2s if result is still empty
-9. HistoryPage merges server readings + localStorage readings, supports batch hide/delete
 
 ### Admin API
 
 All routes under `/api/admin`, require `role === 'admin'`:
 - `GET /api/admin/stats` — total users, readings, today's readings, active users, AI vs template counts
-- `GET|PUT /api/admin/users[/:id]` — paginated user list with search, role change, hard delete
-- `GET|POST /api/admin/readings[/:id]` — all readings including deleted/hidden, hard delete
-- `GET|PUT /api/admin/settings` — AI config (OPENCODE_API_KEY, OPENCODE_BASE_URL, AI_MODEL, AI_MAX_TOKENS)
+- `GET /api/admin/users` (paginated + search) | `GET|PUT|DELETE /api/admin/users/:id` (role change, hard delete)
+- `GET|DELETE /api/admin/readings[/:id]` — all readings including deleted/hidden, hard delete
+- `GET|PUT /api/admin/settings` — AI config (OPENCODE_BASE_URL, AI_MODEL, AI_MAX_TOKENS; API key is env-only)
 
 ### Batch Operations
 
-- `POST /api/readings/batch-sync` — push local readings to server after login
-- `POST /api/readings/batch-delete` — soft delete multiple readings
-- `POST /api/readings/batch-hide` / `batch-unhide` — toggle visibility
+- `POST /api/readings/batch-sync` — push local readings to server after login (wrapped in a transaction)
+- `POST /api/readings/batch-delete` — soft delete multiple own readings
+- `POST /api/readings/batch-hide` / `batch-unhide` — toggle visibility of own readings
