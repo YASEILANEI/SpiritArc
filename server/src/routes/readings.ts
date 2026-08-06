@@ -13,6 +13,15 @@ const allCards: any[] = JSON.parse(readFileSync(cardsPath, 'utf-8'))
 
 const router = Router()
 
+// Non-numeric :id would become NaN in the SQL params below and 500 — reject early.
+router.param('id', (req, res, next, id) => {
+  if (!Number.isInteger(Number(id))) {
+    res.status(400).json({ error: 'Invalid reading id' })
+    return
+  }
+  next()
+})
+
 const SPREAD_POSITIONS: Record<string, string[]> = {
   'three-card': ['past', 'present', 'future'],
 }
