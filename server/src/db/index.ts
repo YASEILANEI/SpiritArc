@@ -45,7 +45,7 @@ await sql`
     reading_result TEXT,
     reading_source TEXT DEFAULT 'template',
     user_id INTEGER REFERENCES users(id),
-    is_public SMALLINT DEFAULT 1,
+    is_public SMALLINT DEFAULT 0,
     created_at TIMESTAMPTZ DEFAULT now(),
     deleted_at TIMESTAMPTZ,
     hidden_at TIMESTAMPTZ

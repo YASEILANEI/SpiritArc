@@ -35,6 +35,7 @@ SpiritArc 是一款完整的塔罗占卜 Web 应用，采用深色神秘风格 U
 - **沉浸式占卜流程** — 洗牌、切牌、抽牌动画全由 CSS 实现，无 JS 动画库依赖
 - **翻牌揭示** — 点击每张牌以 CSS 3D 翻转动画展示解读
 - **用户认证** — 双 token JWT（15 分钟访问 token + 7 天刷新 token 轮换），支持邮箱/手机号注册
+- **默认隐私保护** — 占卜记录默认私有，仅本人可查看（不公开分享）
 - **订阅层级** — 免费用户每周 3 次 AI 解读，高级用户每月 100 次，管理员不限
 - **管理后台** — 数据统计看板、用户管理、解读管理、AI 模型设置
 - **响应式设计** — 移动端优先，TailwindCSS 自定义暗色主题
@@ -45,11 +46,11 @@ SpiritArc 是一款完整的塔罗占卜 Web 应用，采用深色神秘风格 U
 | 层级 | 技术 |
 |------|------|
 | 前端 | React 19, TypeScript 7, Vite 8, TailwindCSS 3 |
-| 后端 | Express 5, TypeScript, better-sqlite3 (WAL 模式) |
+| 后端 | Express 5, TypeScript, Neon Postgres (postgres.js) |
 | 认证 | 双 token JWT（访问 + 刷新轮换）, bcryptjs 密码加密 |
 | AI | 兼容 OpenAI API 格式，默认 deepseek-v4-flash |
 | 动画 | 纯 CSS（rotateY 翻转、keyframe 洗牌、cubic-bezier 弹跳切牌） |
-| 路由 | 客户端状态机 (`useState<Page>`)，无需 React Router |
+| 路由 | URL 驱动路由（history API），无需 React Router |
 
 ## 快速开始
 
@@ -171,6 +172,7 @@ AI 配置也可在管理后台的**设置**页面中运行时修改。
 | GET | `/api/cards/:id` | 获取单张牌详情 | — |
 | POST | `/api/readings` | 创建解读（抽牌 + 模板） | Bearer |
 | GET | `/api/readings` | 用户解读列表 | Bearer |
+| GET | `/api/readings/:id` | 获取单条解读（仅本人） | Bearer |
 | POST | `/api/readings/:id/ai-reading` | 升级为 AI 解读 | Bearer |
 | POST | `/api/readings/batch-sync` | 迁移本地解读 | Bearer |
 | GET | `/api/profile` | 个人资料 | Bearer |

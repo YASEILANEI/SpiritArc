@@ -5,7 +5,7 @@ import { fileURLToPath } from 'url'
 import sql from '../db/index.js'
 import { templateReading } from '../services/template-reading.js'
 import { aiReading } from '../services/ai-reading.js'
-import { authMiddleware, optionalAuth } from '../middleware/auth.js'
+import { authMiddleware } from '../middleware/auth.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const cardsPath = path.join(__dirname, '..', 'data', 'cards.json')
@@ -31,7 +31,7 @@ const VALID_QUESTION_TYPES = ['general', 'love', 'career', 'finance', 'health']
 
 // POST /api/readings — create a new reading
 router.post('/', authMiddleware, async (req, res) => {
-  const { questionType = 'general', question = '', spreadType = 'single', isPublic = true } = req.body
+  const { questionType = 'general', question = '', spreadType = 'single', isPublic = false } = req.body
   if (!VALID_SPREADS.includes(spreadType)) {
     res.status(400).json({ error: `Invalid spreadType. Must be one of: ${VALID_SPREADS.join(', ')}` })
     return
@@ -207,15 +207,15 @@ router.get('/options', authMiddleware, async (req, res) => {
   })))
 })
 
-// GET /api/readings/:id — get single reading
-router.get('/:id', optionalAuth, async (req, res) => {
+// GET /api/readings/:id — get single reading (owner only; readings are private by default)
+router.get('/:id', authMiddleware, async (req, res) => {
   const reading = (await sql`SELECT * FROM readings WHERE id = ${Number(req.params.id)}`)[0] as any
   if (!reading) {
     res.status(404).json({ error: 'Reading not found' })
     return
   }
-  // Check access: owner can see all, others can only see public
-  if (reading.user_id !== req.user?.userId && !reading.is_public) {
+  // Only the owner can read a reading, even if is_public is set
+  if (reading.user_id !== req.user!.userId) {
     res.status(403).json({ error: '无权访问该记录' })
     return
   }

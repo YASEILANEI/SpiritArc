@@ -35,6 +35,7 @@ SpiritArc is a complete tarot reading web application with a dark, mystical UI. 
 - **Immersive reading flow** — animated shuffle, cut, and card-draw steps with pure CSS animations (no JS animation libraries)
 - **Card flip to reveal** — tap each card to see its interpretation with a CSS 3D flip animation
 - **User authentication** — dual-token JWT (15min access + 7d refresh with rotation), email/phone registration
+- **Privacy by default** — readings are private; only the owner can view them (no public sharing)
 - **Subscription tiers** — free (3 AI readings/week), premium (100/month), admin (unlimited)
 - **Admin panel** — dashboard with stats, user management, reading management, AI settings configuration
 - **Responsive design** — mobile-first with TailwindCSS custom dark theme
@@ -45,11 +46,11 @@ SpiritArc is a complete tarot reading web application with a dark, mystical UI. 
 | Layer | Technology |
 |-------|-----------|
 | Frontend | React 19, TypeScript 7, Vite 8, TailwindCSS 3 |
-| Backend | Express 5, TypeScript, better-sqlite3 (WAL mode) |
+| Backend | Express 5, TypeScript, Neon Postgres (postgres.js) |
 | Auth | Dual-token JWT (access + refresh with rotation), bcryptjs |
 | AI | OpenAI-compatible API via deepseek-v4-flash |
 | Animations | Pure CSS (rotateY flip, keyframe shuffle, cubic-bezier bounce cut) |
-| Routing | Client-side state machine (`useState<Page>`), no React Router |
+| Routing | URL-driven routing (history API), no React Router |
 
 ## Quick Start
 
@@ -171,6 +172,7 @@ home → ask → shuffle → cut → draw → analyzing → result → reading-r
 | GET | `/api/cards/:id` | Single card details | — |
 | POST | `/api/readings` | Create reading (draw + template) | Bearer |
 | GET | `/api/readings` | List user readings | Bearer |
+| GET | `/api/readings/:id` | Get single reading (owner only) | Bearer |
 | POST | `/api/readings/:id/ai-reading` | Upgrade to AI interpretation | Bearer |
 | POST | `/api/readings/batch-sync` | Migrate local readings | Bearer |
 | GET | `/api/profile` | User profile | Bearer |

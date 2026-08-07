@@ -1,5 +1,6 @@
 import { useMemo, useState, useEffect } from 'react'
 import type { Reading, LocalReading } from '../types'
+import { apiFetch } from '../api'
 
 interface Props {
   reading: Reading | LocalReading
@@ -68,7 +69,7 @@ export default function ReadingResultPage({ reading, onBackToResult, onHome }: P
     if (!isServerReading || reading.readingResult) return
     const poll = setInterval(async () => {
       try {
-        const res = await fetch(`/api/readings/${reading.id}`)
+        const res = await apiFetch(`/readings/${reading.id}`)
         if (!res.ok) return
         const data = await res.json()
         if (data.readingResult) {
