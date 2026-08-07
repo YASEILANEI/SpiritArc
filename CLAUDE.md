@@ -74,8 +74,9 @@ server/src/
     admin.ts              Stats, user/reading CRUD, settings, feedback (admin-only)
     profile.ts            Profile + subscription/quota
     feedback.ts           User feedback submit/list/unread + rate limiting
+    chat.ts               Spirit chat: one conversation per reading, message send, delete, up/down feedback
   services/
-    ai-reading.ts         AI reading via OpenAI-compatible API (deepseek-v4-flash)
+    ai-reading.ts         aiReading (single-shot spread reading) + aiChat (multi-turn spirit chat) via OpenAI-compatible API
     template-reading.ts   Fallback template reading from card interpretation data
   utils/
     jwt.ts                Access token (15min) + refresh token (7d) helpers
@@ -92,6 +93,10 @@ server/src/
 
 **`readings`**: id, question_type, question, cards (TEXT JSON), spread_type, reading_result, reading_source (`template`|`ai`), user_id (FK), is_public (SMALLINT 1/0), created_at, deleted_at (soft delete), hidden_at. Indexes on user_id, created_at, reading_source. No FK ON DELETE CASCADE — hard-deleting a user manually deletes their tokens + readings + feedback first (see admin route).
 
+**`chat_conversations`**: id, user_id (FK), reading_id (FK), created_at, updated_at. `UNIQUE(user_id, reading_id)` — exactly one conversation per reading. A conversation is wiped when the user leaves the chat (exit-to-burn), so rows are transient.
+
+**`chat_messages`**: id, conversation_id (FK, `ON DELETE CASCADE`), role (`user`|`assistant`), content (TEXT), user_rating (`up`|`down`|NULL), created_at. Indexes on (conversation_id, created_at) and (conversation_id, role, created_at). `user_rating` is set via the message feedback endpoint.
+
 **`feedback`**: id, user_id (FK NOT NULL), reading_id (FK, `ON DELETE SET NULL`), content (TEXT), reply (TEXT), status (`open`|`processed`), replied_at, user_seen_at, created_at. Partial index on `(user_id) WHERE reply IS NOT NULL AND user_seen_at IS NULL` powers the unread-reply check. Admin hard-delete of a user deletes their feedback rows explicitly.
 
 **`settings`** (key-value): key (PK), value, updated_at. Startup-seeded with `ON CONFLICT DO NOTHING` so admin edits persist. Stored keys: OPENCODE_BASE_URL, AI_MODEL (`deepseek-v4-flash`), AI_MAX_TOKENS (`4000`). **OPENCODE_API_KEY is intentionally not stored in the DB** — `ai-reading.ts` reads it from `process.env` only; the admin settings route filters it out and the admin UI has no field for it.
@@ -107,6 +112,7 @@ Startup also deletes expired refresh tokens and idempotently seeds/upgrades the 
 - **`GET /api/readings/options`**: lightweight list (id/question/seq) of the caller's own non-deleted readings for the feedback association dropdown. Must stay registered before `GET /:id` so `/options` isn't swallowed by the id param.
 - **Numeric `:id` validation**: `router.param('id')` in readings.ts and admin.ts rejects non-numeric ids with 400 — a bare `Number('abc')` → `NaN` would otherwise propagate into the SQL params and 500.
 - **AI reading**: `aiReading()` builds a Chinese prompt, calls `{OPENCODE_BASE_URL}/chat/completions` (30s timeout), strips markdown italics/lists but keeps `### ` headers, and returns `null` on any failure (route responds 502). Settings are read DB-first with env fallback, except the API key.
+- **Spirit chat** (`/api/chat`, auth-only): one conversation per reading (`UNIQUE(user_id, reading_id)`, idempotent create/get). `aiChat()` builds a system prompt (the whole spread forms the spirit's voice; anti prompt-injection, no absolute predictions, safety caveats for medical/legal/finance/self-harm) plus reading context (question + spread + initial reading) plus the last 20 messages plus the user's message. Send saves the user message + assistant reply in one transaction only after the AI returns. Every endpoint checks conversation ownership via `user_id`; messages have no own user column — ownership flows through the conversation. Leaving a non-empty chat runs the "exit-to-burn" flow: a confirm modal then `DELETE` wipes the whole conversation (refresh still restores — only intentional leave deletes). Quota: free 10/week, premium 100/week user messages, admin unlimited, counted by `role='user'` in a 7-day window; a per-user `express-rate-limit` (10/15min) guards the send endpoint. `POST /api/chat/messages/:id/feedback` sets/clears `user_rating` (up/down).
 - **Production mode** (`NODE_ENV=production`): serves `client/dist` statically and falls back to `index.html` for non-`/api` GETs (Express 5 middleware, not a wildcard route). Requires `CORS_ORIGIN`.
 - **Quota**: free = 3 AI readings/week, premium = 100/month, admin unlimited — enforced via `COUNT(*)::int` queries filtered by `reading_source = 'ai'` and a date window.
 - **Soft delete vs hide**: `deleted_at` = user-deleted (kept for stats), `hidden_at` = user-hidden from own list; admins see everything. Hard delete only via admin API.
@@ -117,7 +123,7 @@ Startup also deletes expired refresh tokens and idempotently seeds/upgrades the 
 client/src/
   contexts/AuthContext.tsx       Auth state, JWT management, session auto-restore
   components/                    NavBar (dropdown), BackButton, PageContainer, FeedbackReplyModal, LegalModal
-  pages/                         Page components (analyzing rendered inline in App.tsx); FeedbackPage, AdminFeedbackPage
+  pages/                         Page components (analyzing rendered inline in App.tsx); FeedbackPage, AdminFeedbackPage, ChatPage (ChatGPT-style chat UI)
   router.ts                      usePageRouter: URL-driven routing via history API (parsePath/buildPath)
   reading-store.ts               Current-reading persistence + restore (sessionStorage → API fallback)
   api.ts                         apiFetch wrapper + offline localStorage fallback
@@ -131,7 +137,7 @@ client/src/
 
 ### Page Routing
 
-App.tsx uses `usePageRouter()` from `router.ts` (history API + `pushState`, no React Router) instead of a `useState<Page>` state machine. The URL drives which page renders; browser back/forward works via a `popstate` listener. Static pages map 1:1 to paths (`/`, `/ask`, `/history`, `/login`, `/profile`, `/about`, `/about-product`, `/support`, `/feedback`, `/admin`, `/admin/settings`, `/admin/users`, `/admin/readings`, `/admin/feedback`); result pages carry the id in the URL (`/result/:id`, `/reading-result/:id`).
+App.tsx uses `usePageRouter()` from `router.ts` (history API + `pushState`, no React Router) instead of a `useState<Page>` state machine. The URL drives which page renders; browser back/forward works via a `popstate` listener. Static pages map 1:1 to paths (`/`, `/ask`, `/history`, `/login`, `/profile`, `/about`, `/about-product`, `/support`, `/feedback`, `/admin`, `/admin/settings`, `/admin/users`, `/admin/readings`, `/admin/feedback`); result and chat pages carry the id in the URL (`/result/:id`, `/reading-result/:id`, `/chat/:readingId`).
 
 ```
 reading flow:  home → ask → shuffle → cut → draw → analyzing → result → reading-result

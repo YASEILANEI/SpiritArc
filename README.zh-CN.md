@@ -31,6 +31,7 @@ SpiritArc 是一款完整的塔罗占卜 Web 应用，采用深色神秘风格 U
 
 - **78 张 Rider-Waite-Smith 经典塔罗牌** — 支持单张抽牌和三张（过去/现在/未来）牌阵
 - **AI 智能解读** — 点击"AI 塔罗牌灵解读"将任意解读升级为 AI 版本，基于 deepseek-v4-flash 模型
+- **牌灵对话** — 围绕本次牌阵与 AI 牌灵多轮追问；牌灵由整组牌共同形成意识，支持复制与赞/踩反馈，离开即清除对话（私密即焚）
 - **离线优先** — 未登录用户可在 localStorage 创建解读，注册后可迁移至服务器
 - **沉浸式占卜流程** — 洗牌、切牌、抽牌动画全由 CSS 实现，无 JS 动画库依赖
 - **翻牌揭示** — 点击每张牌以 CSS 3D 翻转动画展示解读
@@ -107,18 +108,19 @@ cd ../server && npm start
 
 ## 环境变量
 
-在 `server/.env` 中配置（所有变量均有开发环境安全默认值）。
+在 `server/.env` 中配置。**`DATABASE_URL`、`JWT_SECRET`、`JWT_REFRESH_SECRET` 为必需项，缺失时服务端启动即报错**。
 
 | 变量 | 说明 | 默认值 |
 |------|------|--------|
-| `JWT_SECRET` | 访问 token 签名密钥 | `tarot-jwt-secret-change-in-production` |
-| `JWT_REFRESH_SECRET` | 刷新 token 签名密钥 | `tarot-jwt-refresh-secret-change-in-production` |
+| `DATABASE_URL` | Neon Postgres 连接串 | — |
+| `JWT_SECRET` | 访问 token 签名密钥 | — |
+| `JWT_REFRESH_SECRET` | 刷新 token 签名密钥 | — |
 | `ADMIN_EMAIL` | 首次运行时自动创建的管理员邮箱 | — |
 | `ADMIN_PASSWORD` | 首次运行时自动创建的管理员密码 | — |
-| `OPENCODE_API_KEY` | AI 解读 API 密钥 | — |
+| `OPENCODE_API_KEY` | AI 解读 API 密钥（仅环境变量，不入库） | — |
 | `OPENCODE_BASE_URL` | AI 服务商 API 地址 | `https://opencode.ai/zen/go/v1` |
 | `NODE_ENV` | 运行环境 | `development` |
-| `CLIENT_URL` | 生产环境允许的 CORS 来源 | — |
+| `CORS_ORIGIN` | 生产环境允许的 CORS 来源 | — |
 
 AI 配置也可在管理后台的**设置**页面中运行时修改。
 
@@ -129,19 +131,19 @@ AI 配置也可在管理后台的**设置**页面中运行时修改。
 │   └── src/
 │       ├── components/        # NavBar, BackButton, PageContainer
 │       ├── contexts/          # AuthContext (JWT 状态管理)
-│       ├── pages/             # 18 个页面组件（状态机驱动）
+│       ├── pages/             # 页面组件（URL 驱动路由）
 │       ├── utils/             # reading-generator（离线备用解读生成）
 │       ├── data/              # cards.json（78 张牌完整数据）
 │       └── api/               # 认证辅助函数
 │
-├── server/                    # Express REST API (SQLite + TypeScript)
+├── server/                    # Express REST API (Neon Postgres + TypeScript)
 │   └── src/
-│       ├── db/                # SQLite 初始化、迁移、管理员种子
+│       ├── db/                # 建表、设置项、管理员种子（启动时执行）
 │       ├── middleware/        # JWT 验证、角色鉴权
-│       ├── routes/            # 认证、卡牌、解读、个人资料、管理后台
-│       ├── services/          # AI 解读、模板解读
+│       ├── routes/            # 认证、卡牌、解读、牌灵聊天、反馈、管理后台
+│       ├── services/          # AI 解读/牌灵对话、模板解读
 │       ├── utils/             # JWT 工具函数
-│       └── data/              # cards.json, tarot.db（自动创建）
+│       └── data/              # cards.json
 │
 ├── generate-cards.mjs         # 卡牌 JSON 数据生成脚本
 └── download-images.sh         # Rider-Waite-Smith 卡牌图片下载脚本
@@ -150,9 +152,9 @@ AI 配置也可在管理后台的**设置**页面中运行时修改。
 ### 占卜流程
 
 ```
-首页 → 提问 → 洗牌 → 切牌 → 抽牌 → 解析中 → 结果 → 解读详情
-  ↑                                                      |
-  +------------------------ 历史记录 ---------------------+
+首页 → 提问 → 洗牌 → 切牌 → 抽牌 → 解析中 → 结果 → 解读详情 → 牌灵对话
+  ↑                                                              |
+  +------------------------ 历史记录 ---------------------------+
   |
   ├── 登录 → 注册（认证）
   ├── 个人资料、关于、支持
@@ -175,6 +177,10 @@ AI 配置也可在管理后台的**设置**页面中运行时修改。
 | GET | `/api/readings/:id` | 获取单条解读（仅本人） | Bearer |
 | POST | `/api/readings/:id/ai-reading` | 升级为 AI 解读 | Bearer |
 | POST | `/api/readings/batch-sync` | 迁移本地解读 | Bearer |
+| POST | `/api/chat/conversations` | 创建/获取牌灵会话 | Bearer |
+| GET | `/api/chat/conversations/:id` | 获取会话与消息 | Bearer |
+| POST | `/api/chat/conversations/:id/messages` | 发送聊天消息 | Bearer |
+| DELETE | `/api/chat/conversations/:id` | 删除会话（退出即焚） | Bearer |
 | GET | `/api/profile` | 个人资料 | Bearer |
 | GET | `/api/profile/subscription` | 订阅配额信息 | Bearer |
 | GET | `/api/admin/stats` | 数据统计 | 管理员 |

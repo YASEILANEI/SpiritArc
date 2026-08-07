@@ -26,6 +26,7 @@ import AdminSettingsPage from './pages/AdminSettingsPage'
 import AdminUsersPage from './pages/AdminUsersPage'
 import AdminReadingsPage from './pages/AdminReadingsPage'
 import AdminFeedbackPage from './pages/AdminFeedbackPage'
+import ChatPage from './pages/ChatPage'
 
 function AppContent() {
   const { user, isAuthenticated, isLoading, logout } = useAuth()
@@ -81,7 +82,7 @@ function AppContent() {
   // Auth guard: auth-gated pages reached while logged out → login (avoids blank screen).
   useEffect(() => {
     if (isLoading) return
-    if ((page === 'profile' || page === 'ask' || page === 'feedback') && !isAuthenticated) {
+    if ((page === 'profile' || page === 'ask' || page === 'feedback' || page === 'chat') && !isAuthenticated) {
       navigate('login', { replace: true })
     }
   }, [page, isLoading, isAuthenticated, navigate])
@@ -346,6 +347,14 @@ function AppContent() {
           reading={reading}
           onBackToResult={() => { setFromReadingResult(true); navigate('result', { replace: true, readingId: String(reading.id) }) }}
           onHome={goHome}
+          onChat={() => navigate('chat', { readingId: String(reading.id) })}
+        />
+      )}
+      {page === 'chat' && readingId && (
+        <ChatPage
+          readingId={readingId}
+          onBack={() => navigate('reading-result', { readingId })}
+          onDeleted={() => navigate('reading-result', { replace: true, readingId })}
         />
       )}
       {page === 'history' && (

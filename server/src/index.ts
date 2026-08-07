@@ -11,6 +11,7 @@ import authRouter from './routes/auth.js'
 import adminRouter from './routes/admin.js'
 import profileRouter from './routes/profile.js'
 import feedbackRouter from './routes/feedback.js'
+import chatRouter from './routes/chat.js'
 
 const app = express()
 const PORT = parseInt(process.env.PORT || '3001', 10)
@@ -56,6 +57,7 @@ app.use('/api/admin', adminRouter)
 app.use('/api/cards', cardsRouter)
 app.use('/api/readings', readingsRouter)
 app.use('/api/feedback', feedbackRouter)
+app.use('/api/chat', chatRouter)
 
 // Production: serve client static files
 if (process.env.NODE_ENV === 'production') {

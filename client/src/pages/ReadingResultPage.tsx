@@ -6,6 +6,7 @@ interface Props {
   reading: Reading | LocalReading
   onBackToResult: () => void
   onHome: () => void
+  onChat: () => void
 }
 
 interface Section {
@@ -54,7 +55,7 @@ function renderBold(text: string) {
   })
 }
 
-export default function ReadingResultPage({ reading, onBackToResult, onHome }: Props) {
+export default function ReadingResultPage({ reading, onBackToResult, onHome, onChat }: Props) {
   const [result, setResult] = useState(reading.readingResult)
   const isServerReading = typeof reading.id === 'number'
   const isLoading = isServerReading && !result
@@ -226,21 +227,37 @@ export default function ReadingResultPage({ reading, onBackToResult, onHome }: P
         )}
 
         {/* Action buttons */}
-        <div className="flex gap-3 mt-6">
-          <button
-            onClick={onHome}
-            className="flex-1 py-3 bg-mystic-gold/10 text-mystic-gold rounded-full
-              border border-mystic-gold/30 hover:bg-mystic-gold/20 transition-all text-sm"
-          >
-            再占一次
-          </button>
-          <button
-            onClick={onBackToResult}
-            className="flex-1 py-3 bg-mystic-gold text-mystic-bg rounded-full
-              hover:bg-yellow-500 transition-all text-sm font-serif"
-          >
-            返回翻牌结果
-          </button>
+        <div className="mt-6 space-y-3">
+          {!isOffline && (
+            <button
+              onClick={onChat}
+              className="w-full py-4 bg-gradient-to-r from-mystic-gold/20 via-purple-900/30 to-mystic-gold/20 text-mystic-gold rounded-2xl
+                border border-mystic-gold/50 hover:from-mystic-gold/30 hover:via-purple-900/50 hover:to-mystic-gold/30
+                transition-all text-base font-serif tracking-wide shadow-[0_0_20px_rgba(201,168,76,0.2)]"
+            >
+              <span className="inline-block mr-2 text-mystic-gold/60">✦</span>
+              继续询问牌灵
+              <span className="block text-xs text-mystic-gold/50 font-sans font-normal mt-1">
+                结合本次牌阵，继续追问你的疑惑
+              </span>
+            </button>
+          )}
+          <div className="flex gap-3">
+            <button
+              onClick={onHome}
+              className="flex-1 py-3 bg-mystic-gold/10 text-mystic-gold rounded-full
+                border border-mystic-gold/30 hover:bg-mystic-gold/20 transition-all text-sm"
+            >
+              再占一次
+            </button>
+            <button
+              onClick={onBackToResult}
+              className="flex-1 py-3 bg-mystic-gold text-mystic-bg rounded-full
+                hover:bg-yellow-500 transition-all text-sm font-serif"
+            >
+              返回翻牌结果
+            </button>
+          </div>
         </div>
       </div>
     </div>

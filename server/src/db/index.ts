@@ -80,6 +80,31 @@ await sql`
     created_at TIMESTAMPTZ DEFAULT now()
   )
 `
+
+// Tarot spirit chat tables
+await sql`
+  CREATE TABLE IF NOT EXISTS chat_conversations (
+    id SERIAL PRIMARY KEY,
+    user_id INTEGER NOT NULL REFERENCES users(id),
+    reading_id INTEGER NOT NULL REFERENCES readings(id),
+    created_at TIMESTAMPTZ DEFAULT now(),
+    updated_at TIMESTAMPTZ DEFAULT now(),
+    UNIQUE(user_id, reading_id)
+  )
+`
+await sql`
+  CREATE TABLE IF NOT EXISTS chat_messages (
+    id SERIAL PRIMARY KEY,
+    conversation_id INTEGER NOT NULL REFERENCES chat_conversations(id) ON DELETE CASCADE,
+    role TEXT NOT NULL CHECK (role IN ('user', 'assistant')),
+    content TEXT NOT NULL,
+    created_at TIMESTAMPTZ DEFAULT now()
+  )
+`
+await sql`CREATE INDEX IF NOT EXISTS idx_chat_messages_conversation ON chat_messages(conversation_id, created_at)`
+await sql`CREATE INDEX IF NOT EXISTS idx_chat_messages_user_created ON chat_messages(conversation_id, role, created_at)`
+await sql`ALTER TABLE chat_messages ADD COLUMN IF NOT EXISTS user_rating TEXT`
+
 // Column additions for existing tables (CREATE IF NOT EXISTS won't add columns)
 await sql`ALTER TABLE feedback ADD COLUMN IF NOT EXISTS reply TEXT`
 await sql`ALTER TABLE feedback ADD COLUMN IF NOT EXISTS replied_at TIMESTAMPTZ`

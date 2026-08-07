@@ -180,5 +180,73 @@ export async function fetchReadings(): Promise<(Reading | LocalReading)[]> {
   }
 }
 
+export interface ChatMessage {
+  id: number | string
+  role: 'user' | 'assistant'
+  content: string
+  createdAt: string
+  userRating?: 'up' | 'down' | null
+}
+
+export interface ChatConversation {
+  id: number
+  readingId: number
+  question: string
+  questionType: string
+  spreadType: string
+  cards: DrawnCard[]
+  readingResult?: string | null
+  createdAt: string
+  updatedAt: string
+  messages: ChatMessage[]
+}
+
+export async function createChatConversation(readingId: number): Promise<ChatConversation> {
+  const res = await apiFetch('/chat/conversations', {
+    method: 'POST',
+    body: JSON.stringify({ readingId }),
+  })
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ error: '聊天会话创建失败' }))
+    throw new Error(err.error || '聊天会话创建失败')
+  }
+  return res.json()
+}
+
+export async function sendChatMessage(conversationId: number, content: string): Promise<{
+  userMessage: ChatMessage
+  assistantMessage: ChatMessage
+  quota: { limit: number; used: number; remaining: number } | null
+}> {
+  const res = await apiFetch(`/chat/conversations/${conversationId}/messages`, {
+    method: 'POST',
+    body: JSON.stringify({ content }),
+  })
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ error: '发送消息失败' }))
+    throw new Error(err.error || '发送消息失败')
+  }
+  return res.json()
+}
+
+export async function deleteChatConversation(conversationId: number): Promise<void> {
+  const res = await apiFetch(`/chat/conversations/${conversationId}`, { method: 'DELETE' })
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ error: '删除聊天失败' }))
+    throw new Error(err.error || '删除聊天失败')
+  }
+}
+
+export async function setMessageFeedback(messageId: number, rating: 'up' | 'down' | null): Promise<void> {
+  const res = await apiFetch(`/chat/messages/${messageId}/feedback`, {
+    method: 'POST',
+    body: JSON.stringify({ rating }),
+  })
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ error: '评价失败' }))
+    throw new Error(err.error || '评价失败')
+  }
+}
+
 export { allCards, apiFetch }
 export type { TarotCard }

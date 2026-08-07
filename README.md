@@ -19,7 +19,7 @@
   <img src="https://img.shields.io/badge/Vite-8-646CFF?logo=vite&logoColor=white" alt="Vite 8" />
   <img src="https://img.shields.io/badge/TailwindCSS-3-06B6D4?logo=tailwindcss&logoColor=white" alt="TailwindCSS 3" />
   <img src="https://img.shields.io/badge/Express-5-000000?logo=express&logoColor=white" alt="Express 5" />
-  <img src="https://img.shields.io/badge/SQLite-003B57?logo=sqlite&logoColor=white" alt="SQLite" />
+  <img src="https://img.shields.io/badge/Postgres-336791?logo=postgresql&logoColor=white" alt="Postgres" />
   <img src="https://img.shields.io/badge/JWT-auth-orange?logo=jsonwebtokens&logoColor=white" alt="JWT" />
 </p>
 
@@ -31,6 +31,7 @@ SpiritArc is a complete tarot reading web application with a dark, mystical UI. 
 
 - **78-card Rider-Waite-Smith deck** — both single-card and three-card (past/present/future) spreads
 - **AI-powered interpretations** — click "AI 塔罗牌灵解读" to upgrade any reading; powered by deepseek-v4-flash via OpenAI-compatible API
+- **Spirit chat** — multi-turn follow-up with the AI spirit around your spread; the spirit is voiced by the whole spread, supports copy and up/down feedback, and wipes the conversation on exit (private burn-after-reading)
 - **Offline-first** — unauthenticated users can create readings stored in localStorage, then migrate to server after registration
 - **Immersive reading flow** — animated shuffle, cut, and card-draw steps with pure CSS animations (no JS animation libraries)
 - **Card flip to reveal** — tap each card to see its interpretation with a CSS 3D flip animation
@@ -107,18 +108,19 @@ cd ../server && npm start
 
 ## Environment Variables
 
-Create `server/.env` (all vars have safe defaults for development).
+Create `server/.env`. **`DATABASE_URL`, `JWT_SECRET`, `JWT_REFRESH_SECRET` are required — the server throws at startup if any is missing.**
 
 | Variable | Description | Default |
 |----------|-------------|---------|
-| `JWT_SECRET` | Access token signing secret | `tarot-jwt-secret-change-in-production` |
-| `JWT_REFRESH_SECRET` | Refresh token signing secret | `tarot-jwt-refresh-secret-change-in-production` |
+| `DATABASE_URL` | Neon Postgres connection string | — |
+| `JWT_SECRET` | Access token signing secret | — |
+| `JWT_REFRESH_SECRET` | Refresh token signing secret | — |
 | `ADMIN_EMAIL` | Auto-seeded admin email on first run | — |
 | `ADMIN_PASSWORD` | Auto-seeded admin password | — |
-| `OPENCODE_API_KEY` | API key for AI readings | — |
+| `OPENCODE_API_KEY` | API key for AI readings (env-only, not stored in DB) | — |
 | `OPENCODE_BASE_URL` | API base URL for AI provider | `https://opencode.ai/zen/go/v1` |
 | `NODE_ENV` | Environment | `development` |
-| `CLIENT_URL` | Allowed CORS origin (production) | — |
+| `CORS_ORIGIN` | Allowed CORS origin (production, required) | — |
 
 AI configuration can also be managed at runtime via the admin panel **Settings** page.
 
@@ -129,19 +131,19 @@ AI configuration can also be managed at runtime via the admin panel **Settings**
 │   └── src/
 │       ├── components/        # NavBar, BackButton, PageContainer
 │       ├── contexts/          # AuthContext (JWT management)
-│       ├── pages/             # 18 page components (state machine)
+│       ├── pages/             # Page components (URL-driven routing)
 │       ├── utils/             # reading-generator (offline fallback)
 │       ├── data/              # cards.json (78-card dataset)
 │       └── api/               # auth helpers (refresh, logout)
 │
-├── server/                    # Express REST API (SQLite + TypeScript)
+├── server/                    # Express REST API (Neon Postgres + TypeScript)
 │   └── src/
-│       ├── db/                # SQLite init, migrations, admin seeding
+│       ├── db/                # Schema creation, settings, admin seeding (runs at startup)
 │       ├── middleware/        # JWT auth, role-based authorization
-│       ├── routes/            # auth, cards, readings, profile, admin
-│       ├── services/          # ai-reading, template-reading
+│       ├── routes/            # auth, cards, readings, spirit chat, feedback, admin
+│       ├── services/          # ai-reading/ai-chat, template-reading
 │       ├── utils/             # JWT helpers
-│       └── data/              # cards.json, tarot.db (auto-created)
+│       └── data/              # cards.json
 │
 ├── generate-cards.mjs         # Cards JSON generator
 └── download-images.sh         # Rider-Waite-Smith image downloader
@@ -150,9 +152,9 @@ AI configuration can also be managed at runtime via the admin panel **Settings**
 ### Reading Flow
 
 ```
-home → ask → shuffle → cut → draw → analyzing → result → reading-result
-  ↑                                                           |
-  +--------------------------- history -----------------------+
+home → ask → shuffle → cut → draw → analyzing → result → reading-result → spirit chat
+  ↑                                                                         |
+  +------------------------------- history ---------------------------------+
   |
   ├── login → register (auth)
   ├── profile, about, support
@@ -175,6 +177,10 @@ home → ask → shuffle → cut → draw → analyzing → result → reading-r
 | GET | `/api/readings/:id` | Get single reading (owner only) | Bearer |
 | POST | `/api/readings/:id/ai-reading` | Upgrade to AI interpretation | Bearer |
 | POST | `/api/readings/batch-sync` | Migrate local readings | Bearer |
+| POST | `/api/chat/conversations` | Create/get spirit chat conversation | Bearer |
+| GET | `/api/chat/conversations/:id` | Get conversation + messages | Bearer |
+| POST | `/api/chat/conversations/:id/messages` | Send a chat message | Bearer |
+| DELETE | `/api/chat/conversations/:id` | Delete conversation (exit-to-burn) | Bearer |
 | GET | `/api/profile` | User profile | Bearer |
 | GET | `/api/profile/subscription` | Quota info | Bearer |
 | GET | `/api/admin/stats` | Dashboard stats | Admin |

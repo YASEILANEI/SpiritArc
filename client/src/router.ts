@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from 'react'
 
 export type Page = 'home' | 'ask' | 'shuffle' | 'cut' | 'draw' | 'analyzing'
   | 'result' | 'reading-result' | 'history' | 'login' | 'register' | 'profile'
-  | 'about' | 'about-product' | 'support' | 'feedback'
+  | 'about' | 'about-product' | 'support' | 'feedback' | 'chat'
   | 'admin' | 'admin-settings' | 'admin-users' | 'admin-readings' | 'admin-feedback'
 
 export interface RouteParams {
@@ -46,16 +46,16 @@ export function parsePath(path: string): RouteParams | null {
   if (resultMatch) {
     return { page: 'result', readingId: decodeURIComponent(resultMatch[1]) }
   }
-  const readingResultMatch = path.match(/^\/reading-result\/(.+)$/)
+  const readingResultMatch = path.match(/^\/(reading-result|chat)\/(.+)$/)
   if (readingResultMatch) {
-    return { page: 'reading-result', readingId: decodeURIComponent(readingResultMatch[1]) }
+    return { page: readingResultMatch[1] as Page, readingId: decodeURIComponent(readingResultMatch[2]) }
   }
 
   return null
 }
 
 export function buildPath(page: Page, readingId?: string | null): string {
-  if (page === 'result' || page === 'reading-result') {
+  if (page === 'result' || page === 'reading-result' || page === 'chat') {
     return readingId ? `/${page}/${encodeURIComponent(readingId)}` : `/${page}`
   }
   if (page === 'admin-settings') return '/admin/settings'
