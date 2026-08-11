@@ -95,13 +95,22 @@ router.post('/register', async (req: Request, res: Response) => {
 
     const passwordHash = await bcrypt.hash(password, 10)
     const safeDisplayName = sanitize(displayName || (email ? email.split('@')[0] : phone || ''))
+
+    // 前 100 名注册用户自动升级 premium：原子自增领取名额序号
+    const seq = await sql`
+      INSERT INTO settings (key, value) VALUES ('PROMO_FIRST_100_TAKEN', '1')
+      ON CONFLICT (key) DO UPDATE SET value = (settings.value::int + 1)::text
+      RETURNING value::int
+    `
+    const role = (seq[0].value as number) <= 100 ? 'premium' : 'free'
+
     const result = await sql`
-      INSERT INTO users (email, phone, password_hash, display_name, accepted_terms_version, accepted_terms_at)
-      VALUES (${email || null}, ${phone || null}, ${passwordHash}, ${safeDisplayName}, ${CURRENT_TERMS_VERSION}, now())
+      INSERT INTO users (email, phone, password_hash, display_name, accepted_terms_version, accepted_terms_at, role)
+      VALUES (${email || null}, ${phone || null}, ${passwordHash}, ${safeDisplayName}, ${CURRENT_TERMS_VERSION}, now(), ${role})
       RETURNING id
     `
     const userId = result[0].id as number
-    const payload: TokenPayload = { userId, email: email || '', phone, role: 'free' }
+    const payload: TokenPayload = { userId, email: email || '', phone, role }
     const accessToken = generateAccessToken(payload)
     const refreshToken = generateRefreshToken(payload)
     const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString()

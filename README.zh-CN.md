@@ -180,6 +180,7 @@ AI 配置也可在管理后台的**设置**页面中运行时修改。
 | POST | `/api/readings/batch-sync` | 迁移本地解读 | Bearer |
 | POST | `/api/chat/conversations` | 创建/获取牌灵会话 | Bearer |
 | GET | `/api/chat/conversations/:id` | 获取会话与消息 | Bearer |
+| GET | `/api/promo/first100` | 前 100 名注册活动剩余名额 | — |
 | POST | `/api/chat/conversations/:id/messages` | 发送聊天消息 | Bearer |
 | DELETE | `/api/chat/conversations/:id` | 删除会话（退出即焚） | Bearer |
 | GET | `/api/profile` | 个人资料 | Bearer |

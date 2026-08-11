@@ -180,6 +180,7 @@ home → ask → shuffle → cut → draw → analyzing → result → reading-r
 | POST | `/api/readings/batch-sync` | Migrate local readings | Bearer |
 | POST | `/api/chat/conversations` | Create/get spirit chat conversation | Bearer |
 | GET | `/api/chat/conversations/:id` | Get conversation + messages | Bearer |
+| GET | `/api/promo/first100` | First-100 promo remaining slots | — |
 | POST | `/api/chat/conversations/:id/messages` | Send a chat message | Bearer |
 | DELETE | `/api/chat/conversations/:id` | Delete conversation (exit-to-burn) | Bearer |
 | GET | `/api/profile` | User profile | Bearer |

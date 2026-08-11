@@ -263,6 +263,7 @@ function AppContent() {
         <HomePage
           onStart={handleStart}
           onHistory={() => navigate('history')}
+          onRegister={() => navigate('register')}
           user={user}
         />
       )}

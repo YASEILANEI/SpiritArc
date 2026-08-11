@@ -1,14 +1,16 @@
 import type { User } from '../types'
 import RecentUpdates from '../components/RecentUpdates'
+import PromoBanner from '../components/PromoBanner'
 import { RECENT_UPDATES } from '../data/recent-updates'
 
 interface Props {
   onStart: () => void
   onHistory: () => void
+  onRegister: () => void
   user: User | null
 }
 
-export default function HomePage({ onStart, onHistory, user }: Props) {
+export default function HomePage({ onStart, onHistory, onRegister, user }: Props) {
   return (
     <div className="min-h-screen flex flex-col items-center px-4 pt-20">
       {/* 最新更新公告：点击滚动到更新日志 */}
@@ -58,6 +60,9 @@ export default function HomePage({ onStart, onHistory, user }: Props) {
           查看历史记录
         </button>
       </div>
+
+      {/* 前 100 名注册活动横幅 */}
+      <PromoBanner user={user} onRegister={onRegister} />
 
       {/* 近期更新：贴 hero 下方，随页面滚动 */}
       <RecentUpdates className="w-full max-w-lg pb-12" />

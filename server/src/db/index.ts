@@ -146,6 +146,7 @@ const defaultSettings: [string, string][] = [
   ['OPENCODE_BASE_URL', process.env.OPENCODE_BASE_URL || 'https://opencode.ai/zen/go/v1'],
   ['AI_MODEL', 'deepseek-v4-flash'],
   ['AI_MAX_TOKENS', '4000'],
+  ['PROMO_FIRST_100_TAKEN', '0'], // 前 100 名注册活动已发放的 premium 名额
 ]
 for (const [key, value] of defaultSettings) {
   await sql`INSERT INTO settings (key, value) VALUES (${key}, ${value}) ON CONFLICT (key) DO NOTHING`
