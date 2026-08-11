@@ -292,7 +292,7 @@ export default function ResultPage({ reading, onBack, onHome, onShowReadingResul
                   <div className="text-mystic-text/40 text-xs mt-0.5">
                     灵性启迪 · 深度个性化解读
                     {!isLocal && (
-                      <div className="text-mystic-text/30 mt-0.5">免费用户每周 3 次</div>
+                      <div className="text-mystic-text/30 mt-0.5">解读可能需要 15 秒</div>
                     )}
                   </div>
                 </div>
