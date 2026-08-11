@@ -26,6 +26,23 @@ function cleanMarkdown(text: string): string {
     .trim()
 }
 
+// A non-numeric admin-set AI_MAX_TOKENS would become NaN and serialize to
+// `null` in the request body, which the API rejects — fall back to a safe value.
+function resolveMaxTokens(raw: string | null, fallback = 4000): number {
+  const n = Number(raw)
+  return Number.isInteger(n) && n > 0 ? n : fallback
+}
+
+// DB-first setting lookup with env fallback (shared by aiReading and aiChat).
+async function getSetting(key: string, defaultValue: string): Promise<string> {
+  try {
+    const row = (await sql`SELECT value FROM settings WHERE key = ${key}`)[0] as any
+    return row?.value || process.env[key] || defaultValue
+  } catch {
+    return process.env[key] || defaultValue
+  }
+}
+
 function buildPrompt(questionType: string, question: string, cards: any[]): string {
   const typeLabel = typeLabels[questionType] || '综合'
   const displayQuestion = question?.trim() || `关于${typeLabel}的近期情况`
@@ -80,19 +97,10 @@ export async function aiChat(
   history: { role: 'user' | 'assistant'; content: string }[],
   userMessage: string,
 ): Promise<string | null> {
-  const getSetting = async (key: string, defaultValue: string): Promise<string> => {
-    try {
-      const row = (await sql`SELECT value FROM settings WHERE key = ${key}`)[0] as any
-      return row?.value || process.env[key] || defaultValue
-    } catch {
-      return process.env[key] || defaultValue
-    }
-  }
-
   const apiKey = process.env.OPENCODE_API_KEY || ''
   const baseURL = await getSetting('OPENCODE_BASE_URL', 'https://opencode.ai/zen/go/v1')
   const model = await getSetting('AI_MODEL', 'deepseek-v4-flash')
-  const maxTokens = Math.min(parseInt(await getSetting('AI_MAX_TOKENS', '4000'), 10), 2000)
+  const maxTokens = Math.min(resolveMaxTokens(await getSetting('AI_MAX_TOKENS', '4000')), 2000)
   const typeLabel = typeLabels[questionType] || '综合'
   const cardContext = cards.map((card: any, index: number) => {
     const position = card.position === 'up' ? '正位' : '逆位'
@@ -157,20 +165,10 @@ export async function aiReading(
   question: string,
   cards: any[]
 ): Promise<{ result: string; source: 'ai' } | null> {
-  // Read settings from DB with env fallback (API key from env only for security)
-  const getSetting = async (key: string, defaultValue: string): Promise<string> => {
-    try {
-      const row = (await sql`SELECT value FROM settings WHERE key = ${key}`)[0] as any
-      return row?.value || process.env[key] || defaultValue
-    } catch {
-      return process.env[key] || defaultValue
-    }
-  }
-
   const apiKey = process.env.OPENCODE_API_KEY || ''
   const baseURL = await getSetting('OPENCODE_BASE_URL', 'https://opencode.ai/zen/go/v1')
   const model = await getSetting('AI_MODEL', 'deepseek-v4-flash')
-  const maxTokens = parseInt(await getSetting('AI_MAX_TOKENS', '4000'), 10)
+  const maxTokens = resolveMaxTokens(await getSetting('AI_MAX_TOKENS', '4000'))
 
   try {
     const controller = new AbortController()

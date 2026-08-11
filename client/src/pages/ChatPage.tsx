@@ -67,8 +67,10 @@ export default function ChatPage({ readingId, onBack, onDeleted }: Props) {
   const [remaining, setRemaining] = useState<number | null>(null)
   const [copiedId, setCopiedId] = useState<number | null>(null)
   const [showLeaveConfirm, setShowLeaveConfirm] = useState(false)
+  const [burnError, setBurnError] = useState<string | null>(null)
   const scrollRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLTextAreaElement>(null)
+  const requestLeaveRef = useRef<() => void>(() => {})
 
   useEffect(() => {
     if (!/^\d+$/.test(readingId)) {
@@ -127,21 +129,57 @@ export default function ChatPage({ readingId, onBack, onDeleted }: Props) {
   }
 
   // Leaving a non-empty conversation is permanent — confirm and wipe the session.
-  const leave = () => {
+  // When no conversation is loaded there's nothing to burn (and no id to delete
+  // with), so leave directly instead of promising a deletion we can't perform.
+  const requestLeave = () => {
     if (conversation && conversation.messages.length > 0) {
+      setBurnError(null)
       setShowLeaveConfirm(true)
     } else {
       onBack()
     }
   }
+  useEffect(() => { requestLeaveRef.current = requestLeave })
+
+  // Block browser back while chatting: push an identical-URL guard so a back
+  // keeps the chat page mounted, then route the pop into the same confirm flow.
+  // Without this, popstate navigated straight to reading-result and the private
+  // conversation was never burned.
+  useEffect(() => {
+    window.history.pushState({ chatGuard: true }, '')
+    const onPopState = (e: PopStateEvent) => {
+      if (!e.state?.chatGuard) return
+      window.history.pushState({ chatGuard: true }, '')
+      requestLeaveRef.current()
+    }
+    window.addEventListener('popstate', onPopState)
+    return () => window.removeEventListener('popstate', onPopState)
+  }, [])
 
   const confirmLeave = async () => {
-    setShowLeaveConfirm(false)
     if (conversation) {
       try {
         await deleteChatConversation(conversation.id)
-      } catch { /* best-effort — still leave even if cleanup fails */ }
+        setBurnError(null)
+        setShowLeaveConfirm(false)
+        onDeleted()
+      } catch (err) {
+        // The burn failed — the conversation is NOT wiped. Keep the modal open
+        // and show the error so the user can retry or leave explicitly, rather
+        // than silently skipping the burn (or trapping them with no way out).
+        setBurnError(err instanceof Error ? err.message : '清除对话失败，请稍后重试')
+      }
+    } else {
+      setBurnError(null)
+      setShowLeaveConfirm(false)
+      onDeleted()
     }
+  }
+
+  // Escape hatch for a persistently failing burn — leave anyway, with a warning.
+  const leaveAnyway = () => {
+    setBurnError(null)
+    setShowLeaveConfirm(false)
     onDeleted()
   }
 
@@ -193,7 +231,7 @@ export default function ChatPage({ readingId, onBack, onDeleted }: Props) {
     >
       {/* Top bar */}
       <header className="flex items-center gap-2 px-3 py-3 shrink-0">
-        <button onClick={leave} aria-label="返回解读" className="text-mystic-text/60 hover:text-mystic-gold px-1 text-lg leading-none">←</button>
+        <button onClick={requestLeave} aria-label="返回解读" className="text-mystic-text/60 hover:text-mystic-gold px-1 text-lg leading-none">←</button>
         <div className="flex-1 min-w-0 text-center">
           <div className="flex items-center justify-center gap-1.5">
             <span className="text-mystic-gold text-sm">✦</span>
@@ -295,7 +333,10 @@ export default function ChatPage({ readingId, onBack, onDeleted }: Props) {
                   el.style.height = `${Math.min(el.scrollHeight, 108)}px`
                 }}
                 onKeyDown={e => {
-                  if (e.key === 'Enter' && !e.shiftKey) {
+                  // isComposing guard: pressing Enter while an IME (e.g. Chinese
+                  // pinyin) candidate is being selected must commit the candidate,
+                  // not send the partially-composed message.
+                  if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
                     e.preventDefault()
                     send()
                   }
@@ -338,9 +379,12 @@ export default function ChatPage({ readingId, onBack, onDeleted }: Props) {
             <p className="text-sm text-mystic-text/60 leading-relaxed mb-5">
               与牌灵的交流是私密的。离开后，这段对话将被永久清除，无法恢复。
             </p>
+            {burnError && (
+              <p className="text-xs text-red-400/90 bg-red-900/10 border border-red-400/20 rounded-lg px-3 py-2 mb-4">{burnError}</p>
+            )}
             <div className="flex gap-3">
               <button
-                onClick={() => setShowLeaveConfirm(false)}
+                onClick={() => { setBurnError(null); setShowLeaveConfirm(false) }}
                 className="flex-1 py-2.5 bg-mystic-card text-mystic-text/70 rounded-full border border-mystic-gold/25 text-sm"
               >
                 留下来
@@ -352,6 +396,14 @@ export default function ChatPage({ readingId, onBack, onDeleted }: Props) {
                 永久清除并离开
               </button>
             </div>
+            {burnError && (
+              <button
+                onClick={leaveAnyway}
+                className="mt-3 text-xs text-mystic-text/40 underline hover:text-mystic-text/70"
+              >
+                仍要离开（对话可能未被清除）
+              </button>
+            )}
           </div>
         </div>
       )}

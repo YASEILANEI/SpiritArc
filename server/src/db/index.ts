@@ -82,11 +82,13 @@ await sql`
 `
 
 // Tarot spirit chat tables
+// ON DELETE CASCADE: burning a conversation (or an admin hard-deleting a reading
+// / user) must not trip an FK violation in the delete paths.
 await sql`
   CREATE TABLE IF NOT EXISTS chat_conversations (
     id SERIAL PRIMARY KEY,
-    user_id INTEGER NOT NULL REFERENCES users(id),
-    reading_id INTEGER NOT NULL REFERENCES readings(id),
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    reading_id INTEGER NOT NULL REFERENCES readings(id) ON DELETE CASCADE,
     created_at TIMESTAMPTZ DEFAULT now(),
     updated_at TIMESTAMPTZ DEFAULT now(),
     UNIQUE(user_id, reading_id)
@@ -104,6 +106,32 @@ await sql`
 await sql`CREATE INDEX IF NOT EXISTS idx_chat_messages_conversation ON chat_messages(conversation_id, created_at)`
 await sql`CREATE INDEX IF NOT EXISTS idx_chat_messages_user_created ON chat_messages(conversation_id, role, created_at)`
 await sql`ALTER TABLE chat_messages ADD COLUMN IF NOT EXISTS user_rating TEXT`
+
+// chat_conversations may already exist (from an earlier deploy) without the
+// cascade FK actions, which made admin hard-deletes fail with an FK violation.
+// Rebuild the constraints only when they aren't cascade yet, so startup doesn't
+// churn constraint metadata on every boot for already-fixed databases.
+const userFk = (await sql`SELECT confdeltype FROM pg_constraint WHERE conname = 'chat_conversations_user_id_fkey' AND conrelid = 'chat_conversations'::regclass`)[0] as { confdeltype: string } | undefined
+if (userFk?.confdeltype !== 'c') {
+  await sql`ALTER TABLE chat_conversations DROP CONSTRAINT IF EXISTS chat_conversations_user_id_fkey`
+  await sql`ALTER TABLE chat_conversations ADD CONSTRAINT chat_conversations_user_id_fkey FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE`
+}
+const readingFk = (await sql`SELECT confdeltype FROM pg_constraint WHERE conname = 'chat_conversations_reading_id_fkey' AND conrelid = 'chat_conversations'::regclass`)[0] as { confdeltype: string } | undefined
+if (readingFk?.confdeltype !== 'c') {
+  await sql`ALTER TABLE chat_conversations DROP CONSTRAINT IF EXISTS chat_conversations_reading_id_fkey`
+  await sql`ALTER TABLE chat_conversations ADD CONSTRAINT chat_conversations_reading_id_fkey FOREIGN KEY (reading_id) REFERENCES readings(id) ON DELETE CASCADE`
+}
+
+// Weekly spirit-chat quota counter. Lives independently of chat_messages so that
+// burning a conversation (hard delete + CASCADE) can't refund already-used quota.
+await sql`
+  CREATE TABLE IF NOT EXISTS chat_usage (
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    week_start DATE NOT NULL,
+    sent_count INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (user_id, week_start)
+  )
+`
 
 // Column additions for existing tables (CREATE IF NOT EXISTS won't add columns)
 await sql`ALTER TABLE feedback ADD COLUMN IF NOT EXISTS reply TEXT`
@@ -128,6 +156,9 @@ const cleaned = await sql`DELETE FROM refresh_tokens WHERE expires_at <= now()`
 if (cleaned.count > 0) {
   console.log(`🧹 Cleaned ${cleaned.count} expired refresh tokens`)
 }
+
+// Housekeeping for the weekly chat quota — drop stale buckets
+await sql`DELETE FROM chat_usage WHERE week_start < CURRENT_DATE - INTERVAL '8 weeks'`
 
 // Seed admin account from env
 const adminEmail = process.env.ADMIN_EMAIL

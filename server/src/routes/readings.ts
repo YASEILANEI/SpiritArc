@@ -103,10 +103,11 @@ router.post('/:id/ai-reading', authMiddleware, async (req, res) => {
       }
     }
   }
-  // Reconstruct full card data for AI reading
+  // Reconstruct full card data for AI reading. Offline-synced readings store
+  // full card objects keyed by `id`, server-drawn ones store `cardId` — support both.
   const drawn = JSON.parse(reading.cards)
-  const fullCards = drawn.map((d: { cardId: number; position: string; spreadPosition?: string }) => {
-    const card = allCards.find((c: any) => c.id === d.cardId)
+  const fullCards = drawn.map((d: any) => {
+    const card = allCards.find((c: any) => c.id === (d.cardId ?? d.id))
     return {
       ...card,
       position: d.position,
@@ -314,8 +315,8 @@ function formatReading(reading: any, allCards: any[]) {
     questionType: reading.question_type,
     question: reading.question,
     spreadType: reading.spread_type,
-    cards: drawn.map((d: { cardId: number; position: string; spreadPosition?: string }) => {
-      const card = allCards.find(c => c.id === d.cardId)
+    cards: drawn.map((d: { cardId?: number; id?: number; position: string; spreadPosition?: string }) => {
+      const card = allCards.find(c => c.id === (d.cardId ?? d.id))
       if (!card) {
         return {
           id: d.cardId,

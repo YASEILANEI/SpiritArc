@@ -41,6 +41,49 @@ function formatConversation(row: any, messages: any[]) {
   }
 }
 
+// Monday-based week bucket (YYYY-MM-DD) for the chat quota, computed in UTC so
+// it stays consistent with the DB's CURRENT_DATE used for cleanup.
+function weekStartKey(): string {
+  const now = new Date()
+  const offset = (now.getUTCDay() + 6) % 7 // Monday = 0
+  const monday = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() - offset))
+  const mm = String(monday.getUTCMonth() + 1).padStart(2, '0')
+  const dd = String(monday.getUTCDate()).padStart(2, '0')
+  return `${monday.getUTCFullYear()}-${mm}-${dd}`
+}
+
+// Atomically reserve one weekly quota slot. The upsert's row lock serializes
+// concurrent sends, so the check-and-increment can't be raced. Returns the new
+// used count, or null when the limit is already exceeded — the over-limit
+// rollback happens in the same transaction so the decrement is atomic with the
+// increment.
+async function reserveChatQuota(userId: number, weekStart: string, limit: number): Promise<number | null> {
+  return await sql.begin(async tx => {
+    const res = (await tx`
+      INSERT INTO chat_usage (user_id, week_start, sent_count)
+      VALUES (${userId}, ${weekStart}, 1)
+      ON CONFLICT (user_id, week_start)
+      DO UPDATE SET sent_count = chat_usage.sent_count + 1
+      RETURNING sent_count
+    `)[0] as { sent_count: number }
+    if (res.sent_count > limit) {
+      await tx`UPDATE chat_usage SET sent_count = sent_count - 1 WHERE user_id = ${userId} AND week_start = ${weekStart}`
+      return null
+    }
+    return res.sent_count
+  })
+}
+
+async function refundChatQuota(userId: number, weekStart: string): Promise<void> {
+  try {
+    await sql`UPDATE chat_usage SET sent_count = sent_count - 1 WHERE user_id = ${userId} AND week_start = ${weekStart}`
+  } catch (err) {
+    // Quota bookkeeping must not mask the primary response; a lost slot only
+    // over-counts, which is the safe direction.
+    console.error('Chat quota refund failed:', err)
+  }
+}
+
 async function getOwnedReading(readingId: number, userId: number) {
   return (await sql`
     SELECT * FROM readings
@@ -122,16 +165,7 @@ router.post('/conversations/:id/messages', authMiddleware, rateLimit({
 
   const role = req.user!.role
   const limit = role === 'admin' ? null : role === 'premium' ? 100 : 10
-  const since = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString()
-  const used = (await sql`
-    SELECT COUNT(*)::int AS count FROM chat_messages cm
-    JOIN chat_conversations cc ON cc.id = cm.conversation_id
-    WHERE cc.user_id = ${req.user!.userId} AND cm.role = 'user' AND cm.created_at >= ${since}
-  `)[0].count as number
-  if (limit !== null && used >= limit) {
-    res.status(403).json({ error: `本周牌灵聊天次数已达上限（${limit}条）`, limit, used, remaining: 0 })
-    return
-  }
+  const weekStart = weekStartKey()
 
   const history = await sql`
     SELECT role, content FROM chat_messages
@@ -145,7 +179,9 @@ router.post('/conversations/:id/messages', authMiddleware, rateLimit({
   let fullCards: any[]
   try {
     fullCards = drawn.map((drawnCard: any) => {
-      const card = allCards.find(item => item.id === drawnCard.cardId)
+      // Server-drawn readings store { cardId, position }, but offline readings
+      // batch-synced via /readings/batch-sync store full card objects with `id`.
+      const card = allCards.find(item => item.id === (drawnCard.cardId ?? drawnCard.id))
       if (!card) throw new Error('invalid cardId')
       return {
         ...card,
@@ -158,6 +194,17 @@ router.post('/conversations/:id/messages', authMiddleware, rateLimit({
     res.status(400).json({ error: '占卜记录数据异常，无法继续聊天' })
     return
   }
+
+  // Reserve the quota slot only after validation passes, so a rejected request
+  // never consumes one. The upsert's row lock makes check-and-increment atomic
+  // (a plain COUNT-then-INSERT let concurrent sends slip past the limit), and
+  // counting chat_messages instead would let a conversation burn (CASCADE
+  // delete) refund already-used quota.
+  const reserved = limit === null ? 0 : await reserveChatQuota(req.user!.userId, weekStart, limit)
+  if (limit !== null && reserved === null) {
+    res.status(403).json({ error: `本周牌灵聊天次数已达上限（${limit}条）`, limit, used: limit, remaining: 0 })
+    return
+  }
   const reply = await aiChat(
     conversation.question_type,
     conversation.question,
@@ -167,26 +214,34 @@ router.post('/conversations/:id/messages', authMiddleware, rateLimit({
     content,
   )
   if (!reply) {
+    if (limit !== null) await refundChatQuota(req.user!.userId, weekStart)
     res.status(502).json({ error: '牌灵暂时无法回应，请稍后重试' })
     return
   }
 
-  const inserted = await sql.begin(async tx => {
-    const userMessage = await tx`
-      INSERT INTO chat_messages (conversation_id, role, content)
-      VALUES (${conversation.id}, 'user', ${content}) RETURNING id, role, content, created_at
-    `
-    const assistantMessage = await tx`
-      INSERT INTO chat_messages (conversation_id, role, content)
-      VALUES (${conversation.id}, 'assistant', ${reply}) RETURNING id, role, content, created_at
-    `
-    await tx`UPDATE chat_conversations SET updated_at = now() WHERE id = ${conversation.id}`
-    return { user: userMessage[0], assistant: assistantMessage[0] }
-  })
+  let inserted: { user: any; assistant: any }
+  try {
+    inserted = await sql.begin(async tx => {
+      const userMessage = await tx`
+        INSERT INTO chat_messages (conversation_id, role, content)
+        VALUES (${conversation.id}, 'user', ${content}) RETURNING id, role, content, created_at
+      `
+      const assistantMessage = await tx`
+        INSERT INTO chat_messages (conversation_id, role, content)
+        VALUES (${conversation.id}, 'assistant', ${reply}) RETURNING id, role, content, created_at
+      `
+      await tx`UPDATE chat_conversations SET updated_at = now() WHERE id = ${conversation.id}`
+      return { user: userMessage[0], assistant: assistantMessage[0] }
+    })
+  } catch (err) {
+    // No messages were persisted — return the reserved quota slot.
+    if (limit !== null) await refundChatQuota(req.user!.userId, weekStart)
+    throw err
+  }
   res.status(201).json({
     userMessage: formatMessage(inserted.user),
     assistantMessage: formatMessage(inserted.assistant),
-    quota: limit === null ? null : { limit, used: used + 1, remaining: limit - used - 1 },
+    quota: limit === null ? null : { limit, used: reserved!, remaining: limit - reserved! },
   })
 })
 

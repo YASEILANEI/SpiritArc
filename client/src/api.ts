@@ -231,7 +231,8 @@ export async function sendChatMessage(conversationId: number, content: string): 
 
 export async function deleteChatConversation(conversationId: number): Promise<void> {
   const res = await apiFetch(`/chat/conversations/${conversationId}`, { method: 'DELETE' })
-  if (!res.ok) {
+  // 404 = conversation already gone, which is exactly the burn outcome — treat as success.
+  if (!res.ok && res.status !== 404) {
     const err = await res.json().catch(() => ({ error: '删除聊天失败' }))
     throw new Error(err.error || '删除聊天失败')
   }

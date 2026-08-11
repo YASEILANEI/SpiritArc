@@ -308,6 +308,15 @@ router.put('/settings', async (req: Request, res: Response) => {
     res.status(400).json({ error: '不允许修改该设置' })
     return
   }
+  if (key === 'AI_MAX_TOKENS') {
+    // Digits-only, matching resolveMaxTokens()'s integer parsing — a value like
+    // "1e3" passes Number() checks but parseInt()s to 1, so reject non-integer forms.
+    const s = String(value).trim()
+    if (!/^\d+$/.test(s) || parseInt(s, 10) <= 0) {
+      res.status(400).json({ error: 'AI_MAX_TOKENS 必须是正整数' })
+      return
+    }
+  }
   await sql`INSERT INTO settings (key, value, updated_at) VALUES (${key}, ${String(value)}, now()) ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = now()`
   res.json({ ok: true })
 })
