@@ -32,6 +32,7 @@ SpiritArc 是一款完整的塔罗占卜 Web 应用，采用深色神秘风格 U
 - **78 张 Rider-Waite-Smith 经典塔罗牌** — 支持单张抽牌和三张（过去/现在/未来）牌阵
 - **AI 智能解读** — 点击"AI 塔罗牌灵解读"将任意解读升级为 AI 版本，基于 deepseek-v4-flash 模型
 - **牌灵对话** — 围绕本次牌阵与 AI 牌灵多轮追问；牌灵由整组牌共同形成意识，支持复制与赞/踩反馈，离开即清除对话（私密即焚）
+- **更新日志** — 首页新增「更新日志」板块与顶部新功能公告条，随时了解最近上线了什么
 - **离线优先** — 未登录用户可在 localStorage 创建解读，注册后可迁移至服务器
 - **沉浸式占卜流程** — 洗牌、切牌、抽牌动画全由 CSS 实现，无 JS 动画库依赖
 - **翻牌揭示** — 点击每张牌以 CSS 3D 翻转动画展示解读
@@ -133,7 +134,7 @@ AI 配置也可在管理后台的**设置**页面中运行时修改。
 │       ├── contexts/          # AuthContext (JWT 状态管理)
 │       ├── pages/             # 页面组件（URL 驱动路由）
 │       ├── utils/             # reading-generator（离线备用解读生成）
-│       ├── data/              # cards.json（78 张牌完整数据）
+│       ├── data/              # cards.json（78 张牌完整数据）、recent-updates.ts（更新日志）
 │       └── api/               # 认证辅助函数
 │
 ├── server/                    # Express REST API (Neon Postgres + TypeScript)

@@ -32,6 +32,7 @@ SpiritArc is a complete tarot reading web application with a dark, mystical UI. 
 - **78-card Rider-Waite-Smith deck** — both single-card and three-card (past/present/future) spreads
 - **AI-powered interpretations** — click "AI 塔罗牌灵解读" to upgrade any reading; powered by deepseek-v4-flash via OpenAI-compatible API
 - **Spirit chat** — multi-turn follow-up with the AI spirit around your spread; the spirit is voiced by the whole spread, supports copy and up/down feedback, and wipes the conversation on exit (private burn-after-reading)
+- **Recent updates** — homepage changelog section plus a fixed top banner highlighting the latest feature, so users always know what's new
 - **Offline-first** — unauthenticated users can create readings stored in localStorage, then migrate to server after registration
 - **Immersive reading flow** — animated shuffle, cut, and card-draw steps with pure CSS animations (no JS animation libraries)
 - **Card flip to reveal** — tap each card to see its interpretation with a CSS 3D flip animation
@@ -133,7 +134,7 @@ AI configuration can also be managed at runtime via the admin panel **Settings**
 │       ├── contexts/          # AuthContext (JWT management)
 │       ├── pages/             # Page components (URL-driven routing)
 │       ├── utils/             # reading-generator (offline fallback)
-│       ├── data/              # cards.json (78-card dataset)
+│       ├── data/              # cards.json (78-card dataset), recent-updates.ts (changelog)
 │       └── api/               # auth helpers (refresh, logout)
 │
 ├── server/                    # Express REST API (Neon Postgres + TypeScript)
