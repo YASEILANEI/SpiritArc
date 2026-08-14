@@ -168,7 +168,8 @@ export async function aiReading(
   const apiKey = process.env.OPENCODE_API_KEY || ''
   const baseURL = await getSetting('OPENCODE_BASE_URL', 'https://opencode.ai/zen/go/v1')
   const model = await getSetting('AI_MODEL', 'deepseek-v4-flash')
-  const maxTokens = resolveMaxTokens(await getSetting('AI_MAX_TOKENS', '4000'))
+  // Cap at 8000 so a misconfigured admin setting can't balloon the token bill
+  const maxTokens = Math.min(resolveMaxTokens(await getSetting('AI_MAX_TOKENS', '4000')), 8000)
 
   try {
     const controller = new AbortController()

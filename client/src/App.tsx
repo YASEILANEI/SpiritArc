@@ -39,6 +39,7 @@ function AppContent() {
   const checkedUnreadRef = useRef(false)
   const apiDone = useRef(false)
   const drawDone = useRef(false)
+  const [flowError, setFlowError] = useState('')
   const spreadTypeRef = useRef<'single' | 'three-card'>('single')
   const pendingReading = useRef<Reading | LocalReading | null>(null)
 
@@ -163,6 +164,7 @@ function AppContent() {
   const handleDraw = async (questionType: string, question: string, spreadType: 'single' | 'three-card') => {
     drawDone.current = false
     apiDone.current = false
+    setFlowError('')
     setFromReadingResult(false)
     spreadTypeRef.current = spreadType
     navigate('shuffle')
@@ -171,9 +173,12 @@ function AppContent() {
       pendingReading.current = result
       apiDone.current = true
       tryShowResult()
-    }).catch(() => {
+    }).catch((err) => {
       if (!apiDone.current) {
         apiDone.current = true
+        // Surface the failure on the analyzing page instead of silently
+        // dumping the user back home after the whole shuffle/draw flow.
+        setFlowError(err instanceof Error ? err.message : '占卜创建失败，请稍后重试')
         tryShowResult()
       }
     })
@@ -299,33 +304,48 @@ function AppContent() {
       )}
       {page === 'analyzing' && (
         <div className="min-h-screen flex flex-col items-center justify-center px-4">
-          <div className="w-16 h-16 border-2 border-mystic-gold/30 border-t-mystic-gold rounded-full animate-spin mb-8" />
-          <h2 className="text-xl font-serif text-mystic-gold mb-3">牌灵正在分析你的占卜</h2>
-          <p className="text-mystic-text/40 text-sm mb-12">请稍候，解读即将呈现...</p>
-
-          <div className="grid grid-cols-3 gap-6">
-            {[0, 1, 2].map((i) => (
-              <div
-                key={i}
-                className="w-14 h-14 rounded-full bg-mystic-card/60 border border-mystic-gold/20 flex items-center justify-center"
-                style={{
-                  animation: `pulse 1.5s ease-in-out ${i * 0.3}s infinite`,
-                }}
+          {flowError ? (
+            <div className="text-center">
+              <p className="text-red-400/80 mb-3">占卜创建失败：{flowError}</p>
+              <p className="text-mystic-text/40 text-sm mb-6">本次占卜未能保存，请稍后重试</p>
+              <button
+                onClick={goHome}
+                className="px-6 py-2.5 bg-mystic-gold text-mystic-bg rounded-full text-sm font-serif hover:bg-yellow-500 transition-colors"
               >
-                <span className="text-mystic-gold/60 text-lg">✦</span>
-              </div>
-            ))}
-          </div>
-          <style>{`
-            @keyframes pulse {
-              0%, 100% { opacity: 0.3; transform: scale(0.9); }
-              50% { opacity: 1; transform: scale(1.1); }
-            }
-          `}</style>
+                返回首页
+              </button>
+            </div>
+          ) : (
+            <>
+              <div className="w-16 h-16 border-2 border-mystic-gold/30 border-t-mystic-gold rounded-full animate-spin mb-8" />
+              <h2 className="text-xl font-serif text-mystic-gold mb-3">牌灵正在分析你的占卜</h2>
+              <p className="text-mystic-text/40 text-sm mb-12">请稍候，解读即将呈现...</p>
 
-          <p className="mt-12 text-mystic-text/30 text-xs text-center max-w-xs leading-relaxed">
-            你的问题已被接收，牌灵正在结合塔罗牌义与你的具体情况进行解读
-          </p>
+              <div className="grid grid-cols-3 gap-6">
+                {[0, 1, 2].map((i) => (
+                  <div
+                    key={i}
+                    className="w-14 h-14 rounded-full bg-mystic-card/60 border border-mystic-gold/20 flex items-center justify-center"
+                    style={{
+                      animation: `pulse 1.5s ease-in-out ${i * 0.3}s infinite`,
+                    }}
+                  >
+                    <span className="text-mystic-gold/60 text-lg">✦</span>
+                  </div>
+                ))}
+              </div>
+              <style>{`
+                @keyframes pulse {
+                  0%, 100% { opacity: 0.3; transform: scale(0.9); }
+                  50% { opacity: 1; transform: scale(1.1); }
+                }
+              `}</style>
+
+              <p className="mt-12 text-mystic-text/30 text-xs text-center max-w-xs leading-relaxed">
+                你的问题已被接收，牌灵正在结合塔罗牌义与你的具体情况进行解读
+              </p>
+            </>
+          )}
         </div>
       )}
       {restoringReading && (

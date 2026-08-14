@@ -96,20 +96,22 @@ router.post('/register', async (req: Request, res: Response) => {
     const passwordHash = await bcrypt.hash(password, 10)
     const safeDisplayName = sanitize(displayName || (email ? email.split('@')[0] : phone || ''))
 
-    // 前 100 名注册用户自动升级 premium：原子自增领取名额序号
-    const seq = await sql`
-      INSERT INTO settings (key, value) VALUES ('PROMO_FIRST_100_TAKEN', '1')
-      ON CONFLICT (key) DO UPDATE SET value = (settings.value::int + 1)::text
-      RETURNING value::int
-    `
-    const role = (seq[0].value as number) <= 100 ? 'premium' : 'free'
-
-    const result = await sql`
-      INSERT INTO users (email, phone, password_hash, display_name, accepted_terms_version, accepted_terms_at, role)
-      VALUES (${email || null}, ${phone || null}, ${passwordHash}, ${safeDisplayName}, ${CURRENT_TERMS_VERSION}, now(), ${role})
-      RETURNING id
-    `
-    const userId = result[0].id as number
+    // 前 100 名注册用户自动升级 premium：名额领取与用户创建放在同一事务里，
+    // 避免用户插入失败（如并发抢注同邮箱、DB 抖动）时名额已被消耗。
+    const { userId, role } = await sql.begin(async tx => {
+      const seq = await tx`
+        INSERT INTO settings (key, value) VALUES ('PROMO_FIRST_100_TAKEN', '1')
+        ON CONFLICT (key) DO UPDATE SET value = (settings.value::int + 1)::text
+        RETURNING value::int
+      `
+      const role = (seq[0].value as number) <= 100 ? 'premium' : 'free'
+      const inserted = await tx`
+        INSERT INTO users (email, phone, password_hash, display_name, accepted_terms_version, accepted_terms_at, role)
+        VALUES (${email || null}, ${phone || null}, ${passwordHash}, ${safeDisplayName}, ${CURRENT_TERMS_VERSION}, now(), ${role})
+        RETURNING id
+      `
+      return { userId: inserted[0].id as number, role }
+    })
     const payload: TokenPayload = { userId, email: email || '', phone, role }
     const accessToken = generateAccessToken(payload)
     const refreshToken = generateRefreshToken(payload)

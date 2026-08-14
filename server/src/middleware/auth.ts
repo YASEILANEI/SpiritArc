@@ -44,18 +44,24 @@ export function requireRole(...roles: string[]) {
   return (req: Request, res: Response, next: NextFunction): void => {
     authMiddleware(req, res, async () => {
       try {
-        const role = req.user?.role
-        // Backward compat: old tokens without role — query DB
-        if (!role && req.user) {
-          const user = (await sql`SELECT role FROM users WHERE id = ${req.user.userId}`)[0] as any
-          if (user) {
-            req.user.role = user.role
-          }
+        if (!req.user) {
+          res.status(401).json({ error: '未提供认证令牌' })
+          return
         }
-        if (!req.user?.role || !roles.includes(req.user.role)) {
+        // Always read the role from the DB: the JWT claim can be up to 15
+        // minutes stale, so a demoted admin would otherwise keep access until
+        // the next token refresh. A deleted user must be rejected outright.
+        const user = (await sql`SELECT role FROM users WHERE id = ${req.user.userId}`)[0] as any
+        if (!user) {
+          res.status(401).json({ error: '用户不存在' })
+          return
+        }
+        const role = user.role
+        if (!roles.includes(role)) {
           res.status(403).json({ error: '无权限访问' })
           return
         }
+        req.user.role = role
         next()
       } catch (err) {
         console.error('requireRole error:', err)

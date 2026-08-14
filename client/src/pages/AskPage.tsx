@@ -86,6 +86,7 @@ export default function AskPage({ onDraw, onBack }: Props) {
             type="text"
             value={question}
             onChange={e => setQuestion(e.target.value)}
+            maxLength={500}
             placeholder="例如：我今天需要注意什么？"
             className="w-full px-4 py-3 bg-mystic-card border border-mystic-gold/20 rounded-lg
               text-mystic-text placeholder:text-mystic-text/30

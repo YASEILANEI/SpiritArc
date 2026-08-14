@@ -141,14 +141,15 @@ export default function ChatPage({ readingId, onBack, onDeleted }: Props) {
   }
   useEffect(() => { requestLeaveRef.current = requestLeave })
 
-  // Block browser back while chatting: push an identical-URL guard so a back
-  // keeps the chat page mounted, then route the pop into the same confirm flow.
-  // Without this, popstate navigated straight to reading-result and the private
-  // conversation was never burned.
+  // Block browser back while chatting: any popstate while the chat is mounted
+  // means the user is trying to leave. Re-push an identical-URL guard so the
+  // page stays mounted, then route the pop into the same confirm flow.
+  // Note: e.state can't be used to detect the pop — the guard entry is always
+  // on top of the stack, so the entry being popped *to* never carries the
+  // guard state (the old check made the guard a no-op in production builds).
   useEffect(() => {
     window.history.pushState({ chatGuard: true }, '')
-    const onPopState = (e: PopStateEvent) => {
-      if (!e.state?.chatGuard) return
+    const onPopState = () => {
       window.history.pushState({ chatGuard: true }, '')
       requestLeaveRef.current()
     }

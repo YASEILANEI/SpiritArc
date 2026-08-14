@@ -19,7 +19,7 @@
   <img src="https://img.shields.io/badge/Vite-8-646CFF?logo=vite&logoColor=white" alt="Vite 8" />
   <img src="https://img.shields.io/badge/TailwindCSS-3-06B6D4?logo=tailwindcss&logoColor=white" alt="TailwindCSS 3" />
   <img src="https://img.shields.io/badge/Express-5-000000?logo=express&logoColor=white" alt="Express 5" />
-  <img src="https://img.shields.io/badge/SQLite-003B57?logo=sqlite&logoColor=white" alt="SQLite" />
+  <img src="https://img.shields.io/badge/Postgres-336791?logo=postgresql&logoColor=white" alt="Postgres" />
   <img src="https://img.shields.io/badge/JWT-auth-orange?logo=jsonwebtokens&logoColor=white" alt="JWT" />
 </p>
 
@@ -43,6 +43,15 @@ SpiritArc 是一款完整的塔罗占卜 Web 应用，采用深色神秘风格 U
 - **响应式设计** — 移动端优先，TailwindCSS 自定义暗色主题
 - **全中文界面** — 完整的中文交互体验
 
+## 稳定性与可靠性
+
+- **接口限流** — 牌灵聊天、AI 升级解读、意见反馈均按用户限流（10 次/15 分钟），避免无限重试消耗 AI 费用
+- **事务化管理操作** — 管理员硬删除用户在同一事务内完成，不会留下半删状态
+- **聊天即焚守卫** — 浏览器返回键与页内退出走同一确认流程，私密对话离开即清除
+- **仅网络错误才离线回退** — 服务器拒绝请求会明确报错，不会静默生成本地记录
+- **输入加固** — 问题 ≤500 字、昵称 ≤50 字（去除 HTML 标签）、批量 ID 校验为正整数、`AI_MAX_TOKENS` 上限 8000
+- **界面健壮性** — 全局错误边界、解读轮询 30 秒上限、畸形 URL 安全处理
+
 ## 技术栈
 
 | 层级 | 技术 |
@@ -65,8 +74,8 @@ SpiritArc 是一款完整的塔罗占卜 Web 应用，采用深色神秘风格 U
 
 ```bash
 # 克隆仓库
-git clone https://github.com/YASEILANEI/-SpiritArc.git
-cd -SpiritArc
+git clone https://github.com/YASEILANEI/SpiritArc.git
+cd SpiritArc
 
 # 安装客户端依赖
 cd client && npm install

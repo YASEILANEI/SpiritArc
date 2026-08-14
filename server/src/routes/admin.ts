@@ -132,10 +132,14 @@ router.delete('/users/:id', async (req: Request, res: Response) => {
     return
   }
 
-  await sql`DELETE FROM refresh_tokens WHERE user_id = ${targetId}`
-  await sql`DELETE FROM readings WHERE user_id = ${targetId}`
-  await sql`DELETE FROM feedback WHERE user_id = ${targetId}`
-  await sql`DELETE FROM users WHERE id = ${targetId}`
+  // Run in one transaction so a mid-way failure can't leave a half-deleted
+  // user (tokens gone but readings kept, or vice versa).
+  await sql.begin(async tx => {
+    await tx`DELETE FROM refresh_tokens WHERE user_id = ${targetId}`
+    await tx`DELETE FROM readings WHERE user_id = ${targetId}`
+    await tx`DELETE FROM feedback WHERE user_id = ${targetId}`
+    await tx`DELETE FROM users WHERE id = ${targetId}`
+  })
   res.json({ ok: true })
 })
 
@@ -171,8 +175,11 @@ router.get('/readings', async (req: Request, res: Response) => {
 
 // POST /api/admin/readings/batch-delete
 router.post('/readings/batch-delete', async (req: Request, res: Response) => {
-  const { ids } = req.body
-  if (!Array.isArray(ids) || ids.length === 0) {
+  const ids = (Array.isArray(req.body.ids) ? req.body.ids : [])
+    .map((x: unknown) => Number(x))
+    .filter((n: number) => Number.isInteger(n) && n > 0)
+    .slice(0, 500)
+  if (ids.length === 0) {
     res.status(400).json({ error: '请提供要删除的记录 ID' })
     return
   }

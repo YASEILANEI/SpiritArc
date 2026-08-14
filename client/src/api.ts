@@ -52,6 +52,12 @@ async function apiFetch(path: string, options: RequestInit = {}): Promise<Respon
           headers,
           credentials: 'include',
         })
+        // Retried request is still 401 — the session is genuinely dead. Force
+        // logout instead of leaving the app in a half-authenticated state.
+        if (res.status === 401) {
+          _accessToken = null
+          _onAuthExpired?.()
+        }
       } else {
         _accessToken = null
         _onAuthExpired?.()
@@ -124,38 +130,39 @@ function saveLocalReading(reading: LocalReading) {
 }
 
 export async function createReading(req: ReadingRequest): Promise<Reading | LocalReading> {
+  let res: Response
   try {
-    const res = await apiFetch('/readings', {
+    res = await apiFetch('/readings', {
       method: 'POST',
       body: JSON.stringify(req),
     })
-    if (!res.ok) {
-      // Server rejected the request — surface the error, don't silent-fallback
-      const err = await res.json().catch(() => ({ error: '占卜创建失败' }))
-      throw new Error(err.error || '占卜创建失败')
-    }
-    const reading: Reading = await res.json()
-    return reading
-  } catch (err) {
-    // Only fall back to offline on network errors, not server rejections
-    if (err instanceof Error && err.message !== '占卜创建失败' && !err.message.includes('API error')) {
-      // Network error — offline fallback
-      const count = req.spreadType === 'three-card' ? 3 : 1
-      const drawn = drawLocal(count, req.spreadType)
-      const localReading = generateLocalReading(req.questionType, req.question, drawn)
-      const local: LocalReading = {
-        id: `local_${Date.now()}`,
-        ...req,
-        cards: drawn,
-        createdAt: new Date().toISOString(),
-        readingResult: localReading.result,
-        readingSource: localReading.source,
-      }
-      saveLocalReading(local)
-      return local
-    }
-    throw err
+  } catch {
+    // Only fetch-level failures (network down, server unreachable) fall back to
+    // offline. Server rejections must surface, not silently become local readings.
+    return createLocalReading(req)
   }
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ error: '占卜创建失败' }))
+    throw new Error(err.error || '占卜创建失败')
+  }
+  return res.json()
+}
+
+// Offline fallback: draw locally and persist to localStorage
+function createLocalReading(req: ReadingRequest): LocalReading {
+  const count = req.spreadType === 'three-card' ? 3 : 1
+  const drawn = drawLocal(count, req.spreadType)
+  const localReading = generateLocalReading(req.questionType, req.question, drawn)
+  const local: LocalReading = {
+    id: `local_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+    ...req,
+    cards: drawn,
+    createdAt: new Date().toISOString(),
+    readingResult: localReading.result,
+    readingSource: localReading.source,
+  }
+  saveLocalReading(local)
+  return local
 }
 
 // Upgrade a template reading to AI (牌灵解读)
@@ -174,7 +181,9 @@ export async function fetchReadings(): Promise<(Reading | LocalReading)[]> {
     const res = await apiFetch('/readings')
     if (!res.ok) throw new Error('API error')
     const remote: Reading[] = await res.json()
-    return [...remote, ...local]
+    // Merge then sort by createdAt so offline readings interleave correctly
+    // instead of always trailing the server list.
+    return [...remote, ...local].sort((a, b) => b.createdAt.localeCompare(a.createdAt))
   } catch {
     return local
   }

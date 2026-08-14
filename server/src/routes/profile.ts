@@ -30,11 +30,18 @@ router.get('/', authMiddleware, async (req: Request, res: Response) => {
 
 // PUT /api/profile — update profile
 router.put('/', authMiddleware, async (req: Request, res: Response) => {
-  const { displayName, avatarUrl } = req.body
   const userId = req.user!.userId
 
+  // Strip HTML tags + cap length so junk can't bloat the DB or admin lists
+  const displayName = typeof req.body.displayName === 'string'
+    ? req.body.displayName.replace(/<[^>]*>/g, '').trim().slice(0, 50) || null
+    : null
+  const avatarUrl = typeof req.body.avatarUrl === 'string' && /^https?:\/\//.test(req.body.avatarUrl)
+    ? req.body.avatarUrl.slice(0, 500)
+    : null
+
   await sql`
-    UPDATE users SET display_name = COALESCE(${displayName ?? null}, display_name), avatar_url = COALESCE(${avatarUrl ?? null}, avatar_url), updated_at = now() WHERE id = ${userId}
+    UPDATE users SET display_name = COALESCE(${displayName}, display_name), avatar_url = COALESCE(${avatarUrl}, avatar_url), updated_at = now() WHERE id = ${userId}
   `
 
   const user = (await sql`

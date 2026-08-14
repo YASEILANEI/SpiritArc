@@ -57,6 +57,7 @@ function renderBold(text: string) {
 
 export default function ReadingResultPage({ reading, onBackToResult, onHome, onChat }: Props) {
   const [result, setResult] = useState(reading.readingResult)
+  const [pollFailed, setPollFailed] = useState(false)
   const isServerReading = typeof reading.id === 'number'
   const isLoading = isServerReading && !result
 
@@ -65,10 +66,18 @@ export default function ReadingResultPage({ reading, onBackToResult, onHome, onC
     window.scrollTo(0, 0)
   }, [])
 
-  // Poll for AI result when not yet available
+  // Poll for AI result when not yet available. Give up after 15 attempts (30s)
+  // so a permanently-failing generation doesn't poll forever.
   useEffect(() => {
     if (!isServerReading || reading.readingResult) return
+    let attempts = 0
     const poll = setInterval(async () => {
+      attempts++
+      if (attempts > 15) {
+        clearInterval(poll)
+        setPollFailed(true)
+        return
+      }
       try {
         const res = await apiFetch(`/readings/${reading.id}`)
         if (!res.ok) return
@@ -215,9 +224,18 @@ export default function ReadingResultPage({ reading, onBackToResult, onHome, onC
           </div>
         ) : isLoading ? (
           <div className="bg-mystic-card/80 rounded-xl p-8 text-center border border-mystic-gold/20">
-            <div className="w-12 h-12 border-2 border-mystic-gold/30 border-t-mystic-gold rounded-full animate-spin mx-auto mb-4" />
-            <p className="text-mystic-text/40">解读生成中...</p>
-            <p className="text-mystic-text/30 text-xs mt-2">牌灵正在为你书写指引</p>
+            {pollFailed ? (
+              <>
+                <p className="text-mystic-text/40 mb-2">解读生成失败</p>
+                <p className="text-mystic-text/30 text-xs">请稍后重新进入本页重试</p>
+              </>
+            ) : (
+              <>
+                <div className="w-12 h-12 border-2 border-mystic-gold/30 border-t-mystic-gold rounded-full animate-spin mx-auto mb-4" />
+                <p className="text-mystic-text/40">解读生成中...</p>
+                <p className="text-mystic-text/30 text-xs mt-2">牌灵正在为你书写指引</p>
+              </>
+            )}
           </div>
         ) : (
           <div className="bg-mystic-card/80 rounded-xl p-8 text-center border border-mystic-gold/20">

@@ -43,6 +43,15 @@ SpiritArc is a complete tarot reading web application with a dark, mystical UI. 
 - **Responsive design** — mobile-first with TailwindCSS custom dark theme
 - **Chinese language UI** — full Chinese interface
 
+## Reliability & Safety
+
+- **Rate limiting** — spirit chat sends, AI upgrades, and feedback are rate-limited per user (10/15min); failed AI calls can't be retried into unlimited API spend
+- **Transactional admin deletes** — hard-deleting a user runs in a single transaction (no half-deleted state)
+- **Burn-after-reading chat** — the browser back button re-arms the same confirm flow as the in-app leave button, so private conversations are always wiped on exit
+- **Offline fallback only on network errors** — a server rejection surfaces the error instead of silently creating a local reading
+- **Input hardening** — question ≤500 chars, display name ≤50 chars (HTML stripped), batch ids validated as positive integers, `AI_MAX_TOKENS` capped at 8000
+- **Resilient UI** — global error boundary, bounded result polling (30s), malformed-URL-safe routing
+
 ## Tech Stack
 
 | Layer | Technology |
@@ -65,8 +74,8 @@ SpiritArc is a complete tarot reading web application with a dark, mystical UI. 
 
 ```bash
 # Clone the repository
-git clone https://github.com/YASEILANEI/-SpiritArc.git
-cd -SpiritArc
+git clone https://github.com/YASEILANEI/SpiritArc.git
+cd SpiritArc
 
 # Install client dependencies
 cd client && npm install

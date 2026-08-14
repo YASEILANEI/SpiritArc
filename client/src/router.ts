@@ -36,6 +36,12 @@ const STATIC_PATHS: Record<string, Page> = {
 // a refresh or manual URL entry — at which point the flow state is lost.
 const FLOW_PATHS: Set<string> = new Set(['/shuffle', '/cut', '/draw', '/analyzing'])
 
+// Malformed percent-encoding (e.g. /result/%E0%A4%A) makes decodeURIComponent
+// throw, which would crash the whole app — fall back to the raw string.
+function safeDecode(s: string): string {
+  try { return decodeURIComponent(s) } catch { return s }
+}
+
 export function parsePath(path: string): RouteParams | null {
   const staticPage = STATIC_PATHS[path]
   if (staticPage) return { page: staticPage, readingId: null }
@@ -44,11 +50,11 @@ export function parsePath(path: string): RouteParams | null {
 
   const resultMatch = path.match(/^\/result\/(.+)$/)
   if (resultMatch) {
-    return { page: 'result', readingId: decodeURIComponent(resultMatch[1]) }
+    return { page: 'result', readingId: safeDecode(resultMatch[1]) }
   }
   const readingResultMatch = path.match(/^\/(reading-result|chat)\/(.+)$/)
   if (readingResultMatch) {
-    return { page: readingResultMatch[1] as Page, readingId: decodeURIComponent(readingResultMatch[2]) }
+    return { page: readingResultMatch[1] as Page, readingId: safeDecode(readingResultMatch[2]) }
   }
 
   return null

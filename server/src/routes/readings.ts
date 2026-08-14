@@ -2,6 +2,7 @@ import { Router } from 'express'
 import { readFileSync } from 'fs'
 import path from 'path'
 import { fileURLToPath } from 'url'
+import rateLimit from 'express-rate-limit'
 import sql from '../db/index.js'
 import { templateReading } from '../services/template-reading.js'
 import { aiReading } from '../services/ai-reading.js'
@@ -31,7 +32,10 @@ const VALID_QUESTION_TYPES = ['general', 'love', 'career', 'finance', 'health']
 
 // POST /api/readings — create a new reading
 router.post('/', authMiddleware, async (req, res) => {
-  const { questionType = 'general', question = '', spreadType = 'single', isPublic = false } = req.body
+  const { questionType = 'general', spreadType = 'single', isPublic = false } = req.body
+  // Trim + cap question length — it is persisted and re-sent to the AI on every
+  // upgrade/chat call, so an unbounded value would bloat the DB and the bill.
+  const question = typeof req.body.question === 'string' ? req.body.question.trim().slice(0, 500) : ''
   if (!VALID_SPREADS.includes(spreadType)) {
     res.status(400).json({ error: `Invalid spreadType. Must be one of: ${VALID_SPREADS.join(', ')}` })
     return
@@ -65,7 +69,13 @@ router.post('/', authMiddleware, async (req, res) => {
 })
 
 // POST /api/readings/:id/ai-reading — upgrade template reading to AI (weekly limited for free users)
-router.post('/:id/ai-reading', authMiddleware, async (req, res) => {
+// Per-user rate limit: failed AI calls don't consume quota, so without a cap a
+// user could burn unlimited API credits by retrying.
+router.post('/:id/ai-reading', authMiddleware, rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 10,
+  keyGenerator: (req: any) => String(req.user!.userId),
+}), async (req, res) => {
   const reading = (await sql`SELECT * FROM readings WHERE id = ${Number(req.params.id)}`)[0] as any
   if (!reading) {
     res.status(404).json({ error: '占卜记录不存在' })
@@ -147,8 +157,8 @@ router.post('/batch-sync', authMiddleware, async (req, res) => {
 
 // POST /api/readings/batch-delete — soft delete multiple readings
 router.post('/batch-delete', authMiddleware, async (req, res) => {
-  const { ids } = req.body
-  if (!Array.isArray(ids) || ids.length === 0) {
+  const ids = sanitizeIds(req.body.ids)
+  if (ids.length === 0) {
     res.status(400).json({ error: '请提供要删除的记录 ID' })
     return
   }
@@ -159,8 +169,8 @@ router.post('/batch-delete', authMiddleware, async (req, res) => {
 
 // POST /api/readings/batch-hide — hide multiple readings from user view
 router.post('/batch-hide', authMiddleware, async (req, res) => {
-  const { ids } = req.body
-  if (!Array.isArray(ids) || ids.length === 0) {
+  const ids = sanitizeIds(req.body.ids)
+  if (ids.length === 0) {
     res.status(400).json({ error: '请提供要隐藏的记录 ID' })
     return
   }
@@ -170,8 +180,8 @@ router.post('/batch-hide', authMiddleware, async (req, res) => {
 
 // POST /api/readings/batch-unhide — unhide multiple readings
 router.post('/batch-unhide', authMiddleware, async (req, res) => {
-  const { ids } = req.body
-  if (!Array.isArray(ids) || ids.length === 0) {
+  const ids = sanitizeIds(req.body.ids)
+  if (ids.length === 0) {
     res.status(400).json({ error: '请提供要取消隐藏的记录 ID' })
     return
   }
@@ -284,6 +294,24 @@ router.post('/:id/unhide', authMiddleware, async (req, res) => {
   await sql`UPDATE readings SET hidden_at = NULL WHERE id = ${Number(req.params.id)}`
   res.json({ ok: true })
 })
+
+// Coerce a request-body id list into unique positive integers. Rejects strings,
+// negatives and NaN that would otherwise trip a PG type error (500) inside the
+// array SQL param, and caps the batch size.
+function sanitizeIds(raw: unknown): number[] {
+  if (!Array.isArray(raw)) return []
+  const seen = new Set<number>()
+  const out: number[] = []
+  for (const x of raw) {
+    const n = Number(x)
+    if (Number.isInteger(n) && n > 0 && !seen.has(n)) {
+      seen.add(n)
+      out.push(n)
+    }
+    if (out.length >= 500) break
+  }
+  return out
+}
 
 function spreadCardIds(spread: string): number {
   switch (spread) {

@@ -109,7 +109,9 @@ export default function ResultPage({ reading, onBack, onHome, onShowReadingResul
     } catch (err: any) {
       const msg = err?.message || ''
       if (msg.includes('已达上限')) {
+        // Server message already differentiates 本周3次 / 本月100次 — show it as-is
         setModalState('limit')
+        setErrorMsg(msg)
       } else {
         setModalState('error')
         setErrorMsg(msg)
@@ -329,7 +331,7 @@ export default function ResultPage({ reading, onBack, onHome, onShowReadingResul
             )}
             {modalState === 'limit' && (
               <p className="text-amber-400/80 text-sm text-center mb-2">
-                本周牌灵解读次数已达上限（3 次），请使用模板解读或下周一再来
+                {errorMsg || '牌灵解读次数已达上限，请使用模板解读或下周期再来'}
               </p>
             )}
 

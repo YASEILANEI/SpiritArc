@@ -1,5 +1,5 @@
 import { Router, Request, Response } from 'express'
-import rateLimit from 'express-rate-limit'
+import rateLimit, { ipKeyGenerator } from 'express-rate-limit'
 import sql from '../db/index.js'
 import { authMiddleware } from '../middleware/auth.js'
 
@@ -9,7 +9,9 @@ const router = Router()
 router.post('/', authMiddleware, rateLimit({
   windowMs: 15 * 60 * 1000,
   limit: 10,
-  keyGenerator: (req: any) => String(req.user?.userId ?? req.ip),
+  // express-rate-limit v8 requires the ipKeyGenerator helper when falling back
+  // to req.ip — otherwise it raises ERR_ERL_KEY_GEN_IPV6 at runtime.
+  keyGenerator: (req: any) => req.user?.userId ? String(req.user.userId) : ipKeyGenerator(req),
 }), async (req: Request, res: Response) => {
   const content = (req.body.content || '').trim()
   if (!content) {
